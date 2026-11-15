@@ -30,6 +30,7 @@ const SAPPHIRE: StringName = &"sapphire"
 const FIRERED: StringName = &"firered"
 const LEAFGREEN: StringName = &"leafgreen"
 const EMERALD: StringName = &"emerald"
+const HEARTSOUL: StringName = &"heart_soul"
 
 ## sha1 (lowercase hex) -> { id, title, revision, generation, playable, dev }
 ## `playable` false offers no Play. A `dev` cartridge is offered only under the
@@ -117,11 +118,20 @@ const BY_SHA1: Dictionary = {
 		"playable": false,
 		"dev": true,
 	},
+	"cd4c62ea260d45676b940ee9105cf068595170ac": {
+		"id": HEARTSOUL,
+		"title": "Heart & Soul",
+		"revision": "hns-coop-114",
+		"generation": GEN3,
+		"playable": false,
+		"dev": true,
+		"size": 33554432,
+	},
 }
 
 ## Display order for the launcher shelf, oldest cartridge first.
 const ORDER: Array[StringName] = [
-	RED, BLUE, YELLOW, GOLD, SILVER, CRYSTAL, RUBY, SAPPHIRE, FIRERED, LEAFGREEN, EMERALD,
+	RED, BLUE, YELLOW, GOLD, SILVER, CRYSTAL, RUBY, SAPPHIRE, FIRERED, LEAFGREEN, EMERALD, HEARTSOUL,
 ]
 
 
@@ -207,10 +217,26 @@ static func ids_of_generation(generation: int) -> Array[StringName]:
 	return out
 
 
+## Every file length the import gate accepts: the per-generation sizes plus
+## any per-cartridge override (Heart & Soul is a 32 MB GEN3 hack).
+static func known_sizes() -> Array[int]:
+	var out: Array[int] = []
+	for size: int in SIZES.values():
+		out.append(size)
+	for sha1: String in BY_SHA1:
+		var size: int = int(BY_SHA1[sha1].get("size", 0))
+		if size > 0 and not out.has(size):
+			out.append(size)
+	return out
+
+
 static func size_for(id: StringName) -> int:
+	var row: Dictionary = row_for(id)
+	if row.has("size"):
+		return int(row["size"])
 	return int(SIZES.get(generation_for(id), 0))
 
 
 ## Whether a file of this length could be one of ours at all.
 static func is_known_size(size: int) -> bool:
-	return SIZES.values().has(size)
+	return known_sizes().has(size)

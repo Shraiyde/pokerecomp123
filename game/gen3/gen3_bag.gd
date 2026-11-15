@@ -7,11 +7,11 @@ extends RefCounted
 const POCKET_SLOTS: Dictionary = {
 	RomRegistry.RUBY: [20, 20, 16, 64, 46], RomRegistry.SAPPHIRE: [20, 20, 16, 64, 46],
 	RomRegistry.FIRERED: [42, 30, 13, 58, 43], RomRegistry.LEAFGREEN: [42, 30, 13, 58, 43],
-	RomRegistry.EMERALD: [30, 30, 16, 64, 46],
+	RomRegistry.EMERALD: [30, 30, 16, 64, 46], RomRegistry.HEARTSOUL: [30, 30, 16, 64, 46],
 }
 const PC_SLOTS: Dictionary = {
 	RomRegistry.RUBY: 50, RomRegistry.SAPPHIRE: 50,
-	RomRegistry.FIRERED: 30, RomRegistry.LEAFGREEN: 30, RomRegistry.EMERALD: 50,
+	RomRegistry.FIRERED: 30, RomRegistry.LEAFGREEN: 30, RomRegistry.EMERALD: 50, RomRegistry.HEARTSOUL: 50,
 }
 const KEY_POCKET: int = 1
 const TM_POCKET: int = 3

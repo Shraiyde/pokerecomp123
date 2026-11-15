@@ -10,6 +10,7 @@ const HEADERS: Dictionary = {
 	RomRegistry.FIRERED: ["BPRE", 1],
 	RomRegistry.LEAFGREEN: ["BPGE", 1],
 	RomRegistry.EMERALD: ["BPEE", 0],
+	RomRegistry.HEARTSOUL: ["BPEE", 0],
 }
 
 ## Endpoints from pret's data files, the same on all five.
@@ -84,14 +85,16 @@ static func _verify_header(rom: RomFile, _layout: Dictionary) -> Dictionary:
 
 static func _species_name(rom: RomFile, layout: Dictionary, species: int) -> String:
 	return Gen3Text.decode_fixed(
-		rom.id, rom.bytes(), Gen3Layout.species_name_offset(layout, species), Gen3Layout.SPECIES_NAME_SIZE
+		rom.id, rom.bytes(), Gen3Layout.species_name_offset(layout, species), Gen3Layout.species_name_size(layout)
 	)
 
 
 static func _verify_species_names(rom: RomFile, layout: Dictionary) -> Dictionary:
 	var first: String = _species_name(rom, layout, 1)
-	var last: String = _species_name(rom, layout, LAST_SPECIES)
-	if first != FIRST_SPECIES_NAME or last != LAST_SPECIES_NAME:
+	var last_index: int = int(layout.get("verify_last_species", Gen3Layout.species_count(layout) - 1))
+	var last: String = _species_name(rom, layout, last_index)
+	var last_name: String = String(layout.get("verify_last_species_name", LAST_SPECIES_NAME))
+	if first != FIRST_SPECIES_NAME or last != last_name:
 		return _fail("gSpeciesNames reads '%s' and '%s'." % [first, last])
 	return _ok()
 
@@ -101,76 +104,118 @@ static func _verify_species_info(rom: RomFile, layout: Dictionary) -> Dictionary
 	var read: Array[int] = []
 	for field: int in Gen3Layout.INFO_EXP_YIELD + 1:
 		read.append(rom.u8(at + field))
-	if read != FIRST_INFO:
+	var wanted: Array = layout.get("verify_first_info", FIRST_INFO)
+	if read != wanted:
 		return _fail("Bulbasaur's species info reads %s." % str(read))
 	return _ok()
 
 
 static func _verify_dex_numbers(rom: RomFile, layout: Dictionary) -> Dictionary:
-	for species: int in DEX_NUMBERS:
+	var wanted: Dictionary = layout.get("verify_dex_numbers", DEX_NUMBERS)
+	for species: int in wanted:
 		var read: Array = [
 			Gen3Layout.national_number(rom, layout, species),
 			Gen3Layout.hoenn_number(rom, layout, species),
 		]
-		if read != DEX_NUMBERS[species]:
+		if read != wanted[species]:
 			return _fail("Species %d has dex numbers %s." % [species, str(read)])
-	if _species_by_national(rom, layout).size() != Gen3Layout.NATIONAL_DEX_COUNT:
+	if Gen3Layout.species_by_national(rom, layout).size() != Gen3Layout.national_dex_count(layout):
 		return _fail("The national dex table does not name %d species once each."
-			% Gen3Layout.NATIONAL_DEX_COUNT)
+			% Gen3Layout.national_dex_count(layout))
 	return _ok()
 
 
-## National number to internal species; the unused Unown slots drop out, and a number claimed twice empties the answer.
-static func _species_by_national(rom: RomFile, layout: Dictionary) -> Dictionary:
-	var out: Dictionary = {}
-	for species: int in range(1, Gen3Layout.SPECIES_COUNT):
-		var number: int = Gen3Layout.national_number(rom, layout, species)
-		if number < 1 or number > Gen3Layout.NATIONAL_DEX_COUNT:
-			continue
-		if out.has(number):
-			return {}
-		out[number] = species
-	return out
-
-
 static func _move_name(rom: RomFile, layout: Dictionary, move: int) -> String:
+	if layout.has("move_name_pointer"):
+		var text: Variant = _pointed_text(rom, Gen3Layout.move_offset(layout, move))
+		return String(text) if text != null else ""
 	return Gen3Text.decode_fixed(
 		rom.id, rom.bytes(), Gen3Layout.move_name_offset(layout, move), Gen3Layout.MOVE_NAME_SIZE
 	)
 
 
+## One move's battle data, decoded from the cartridge's move struct. Vanilla packs the
+## fields as single bytes; pokeemerald-expansion packs them as bitfields in a 68-byte struct.
+static func _move_record(rom: RomFile, layout: Dictionary, move: int) -> Dictionary:
+	var at: int = Gen3Layout.move_offset(layout, move)
+	if layout.has("move_name_pointer"):
+		var type_power: int = rom.u16le(at + 10)
+		var acc_target: int = rom.u16le(at + 12)
+		var priority: int = rom.u32le(at + 16) & 0xF
+		if priority >= 8:
+			priority -= 16
+		return {
+			"effect": rom.u16le(at + 8),
+			"power": (type_power >> 7) & 0x1FF,
+			"type": type_power & 31,
+			"category": (type_power >> 5) & 3,
+			"accuracy": acc_target & 0x7F,
+			"pp": rom.u8(at + 14),
+			"effect_chance": 0,  # lives in the move's AdditionalEffect list, not MoveInfo
+			"target": (acc_target >> 7) & 0x1FF,
+			"priority": priority,
+			"flags": 0,  # MoveInfo flags are spread across bitfield words; not mapped yet
+		}
+	return {
+		"effect": rom.u8(at + Gen3Layout.MOVE_EFFECT),
+		"power": rom.u8(at + Gen3Layout.MOVE_POWER),
+		"type": rom.u8(at + Gen3Layout.MOVE_TYPE),
+		"accuracy": rom.u8(at + Gen3Layout.MOVE_ACCURACY),
+		"pp": rom.u8(at + Gen3Layout.MOVE_PP),
+		"effect_chance": rom.u8(at + Gen3Layout.MOVE_EFFECT_CHANCE),
+		"target": rom.u8(at + Gen3Layout.MOVE_TARGET),
+		"priority": rom.s8(at + Gen3Layout.MOVE_PRIORITY),
+		"flags": rom.u8(at + Gen3Layout.MOVE_FLAGS),
+	}
+
+
+static func _move_matches(record: Dictionary, wanted: Dictionary) -> bool:
+	for key: String in wanted:
+		if record.get(key) != wanted[key]:
+			return false
+	return true
+
+
 static func _verify_moves(rom: RomFile, layout: Dictionary) -> Dictionary:
-	var last_move: int = Gen3Layout.MOVES_COUNT - 1
+	var last_move: int = Gen3Layout.moves_count(layout) - 1
 	var first_name: String = _move_name(rom, layout, 1)
 	var last_name: String = _move_name(rom, layout, last_move)
-	if first_name != FIRST_MOVE_NAME or last_name != LAST_MOVE_NAME:
+	var last_name_wanted: String = String(layout.get("verify_last_move_name", LAST_MOVE_NAME))
+	if first_name != FIRST_MOVE_NAME or last_name != last_name_wanted:
 		return _fail("gMoveNames reads '%s' and '%s'." % [first_name, last_name])
-	var first: int = Gen3Layout.move_offset(layout, 1)
-	var last: int = Gen3Layout.move_offset(layout, last_move)
-	var read_first: Array[int] = []
-	for field: int in Gen3Layout.MOVE_PP + 1:
-		read_first.append(rom.u8(first + field))
-	var read_last: Array[int] = []
-	for field: int in range(Gen3Layout.MOVE_POWER, Gen3Layout.MOVE_PP + 1):
-		read_last.append(rom.u8(last + field))
-	if read_first != FIRST_MOVE or read_last != LAST_MOVE:
-		return _fail("gBattleMoves reads %s and %s." % [str(read_first), str(read_last)])
+	var first_wanted: Dictionary = layout.get("verify_first_move", {
+		"effect": FIRST_MOVE[0], "power": FIRST_MOVE[1], "type": FIRST_MOVE[2],
+		"accuracy": FIRST_MOVE[3], "pp": FIRST_MOVE[4],
+	})
+	var last_wanted: Dictionary = layout.get("verify_last_move", {
+		"power": LAST_MOVE[0], "type": LAST_MOVE[1], "accuracy": LAST_MOVE[2], "pp": LAST_MOVE[3],
+	})
+	if not _move_matches(_move_record(rom, layout, 1), first_wanted) \
+		or not _move_matches(_move_record(rom, layout, last_move), last_wanted):
+		return _fail("gBattleMoves reads %s and %s." % [
+			str(_move_record(rom, layout, 1)), str(_move_record(rom, layout, last_move)),
+		])
 	return _ok()
 
 
 static func _type_name(rom: RomFile, layout: Dictionary, type: int) -> String:
 	return Gen3Text.decode_fixed(
-		rom.id, rom.bytes(), Gen3Layout.type_name_offset(layout, type), Gen3Layout.TYPE_NAME_SIZE
+		rom.id, rom.bytes(), Gen3Layout.type_name_offset(layout, type), Gen3Layout.type_name_size(layout)
 	)
 
 
 static func _verify_type_names(rom: RomFile, layout: Dictionary) -> Dictionary:
 	var read: Array = [
 		_type_name(rom, layout, 0),
-		_type_name(rom, layout, Gen3Layout.TYPE_MYSTERY),
-		_type_name(rom, layout, Gen3Layout.TYPE_COUNT - 1),
+		_type_name(rom, layout, Gen3Layout.type_mystery(layout)),
+		_type_name(rom, layout, Gen3Layout.type_count(layout) - 1),
 	]
-	if read != [FIRST_TYPE_NAME, MYSTERY_TYPE_NAME, LAST_TYPE_NAME]:
+	var wanted: Array = [
+		String(layout.get("verify_first_type_name", FIRST_TYPE_NAME)),
+		MYSTERY_TYPE_NAME,
+		String(layout.get("verify_last_type_name", LAST_TYPE_NAME)),
+	]
+	if read != wanted:
 		return _fail("gTypeNames reads %s." % str(read))
 	return _ok()
 
@@ -183,6 +228,8 @@ static func _verify_matchups(rom: RomFile, layout: Dictionary) -> Dictionary:
 
 ## Empty when a row is not a matchup, which is a wrong offset.
 static func _read_matchups(rom: RomFile, layout: Dictionary) -> Array:
+	if bool(layout.get("type_effectiveness_matrix", false)):
+		return _read_matchups_matrix(rom, layout)
 	var out: Array = []
 	var after_foresight: bool = false
 	var at: int = int(layout["type_effectiveness"])
@@ -196,7 +243,7 @@ static func _read_matchups(rom: RomFile, layout: Dictionary) -> Array:
 		if attacker == Gen3Layout.MATCHUP_FORESIGHT:
 			after_foresight = true
 			continue
-		if attacker >= Gen3Layout.TYPE_COUNT or defender >= Gen3Layout.TYPE_COUNT \
+		if attacker >= Gen3Layout.type_count(layout) or defender >= Gen3Layout.type_count(layout) \
 			or not Gen3Layout.MATCHUP_MULTIPLIERS.has(multiplier):
 			return []
 		out.append({
@@ -208,27 +255,68 @@ static func _read_matchups(rom: RomFile, layout: Dictionary) -> Array:
 	return []
 
 
+## pokeemerald-expansion keeps effectiveness as a dense type_count x type_count matrix of
+## u32 fixed-point values (0x1000 neutral, 0x0800 half, 0x2000 double, 0 immune). The row
+## format only lists non-neutral matchups, so neutral entries are dropped here. Foresight
+## negates the Normal/Fighting immunity to Ghost, which the matrix cannot mark.
+static func _read_matchups_matrix(rom: RomFile, layout: Dictionary) -> Array:
+	var count: int = Gen3Layout.type_count(layout)
+	var at: int = int(layout["type_effectiveness"])
+	if not rom.in_bounds(at, count * count * 4):
+		return []
+	var names: Dictionary = {}
+	for type: int in count:
+		names[_type_name(rom, layout, type)] = type
+	var ghost: int = int(names.get("GHOST", -1))
+	var sight: Array[int] = [int(names.get("NORMAL", -1)), int(names.get("FIGHTING", -1))]
+	var out: Array = []
+	for attacker: int in count:
+		for defender: int in count:
+			var value: int = rom.u32le(at + (attacker * count + defender) * 4)
+			if value == 0x1000:
+				continue
+			var multiplier: int = 0
+			if value == 0x0800:
+				multiplier = 5
+			elif value == 0x2000:
+				multiplier = 20
+			elif value != 0:
+				return []
+			out.append({
+				"attacker": attacker,
+				"defender": defender,
+				"multiplier": multiplier,
+				"negated_by_foresight": value == 0 and defender == ghost and sight.has(attacker),
+			})
+	return out
+
+
 static func _verify_learnsets(rom: RomFile, layout: Dictionary) -> Dictionary:
-	var at: int = _learnset_offset(rom, layout, 1)
-	if at < 0 or rom.u16le(at) != FIRST_LEARNSET_WORD:
+	var first: Array = _read_learnset(rom, layout, 1)
+	var wanted_first: Dictionary = {
+		"level": FIRST_LEARNSET_WORD >> Gen3Layout.LEARNSET_LEVEL_SHIFT,
+		"move": FIRST_LEARNSET_WORD & Gen3Layout.LEARNSET_MOVE_MASK,
+	}
+	if first.is_empty() or first[0] != wanted_first:
 		return _fail("gLevelUpLearnsets does not open Bulbasaur's list on Tackle.")
-	for species: int in range(1, Gen3Layout.SPECIES_COUNT):
+	for species: int in Gen3Layout.verify_species_list(rom, layout):
 		if _read_learnset(rom, layout, species).is_empty():
 			return _fail("Species %d's level-up list is empty or has no end." % species)
 	return _ok()
 
 
-static func _learnset_offset(rom: RomFile, layout: Dictionary, species: int) -> int:
-	return Gen3Layout.rom_offset(
-		rom.u32le(int(layout["learnsets"]) + species * Gen3Layout.POINTER_SIZE)
-	)
-
-
 static func _read_learnset(rom: RomFile, layout: Dictionary, species: int) -> Array:
-	var at: int = _learnset_offset(rom, layout, species)
+	var at: int = Gen3Layout.learnset_offset(rom, layout, species)
 	if at < 0:
 		return []
 	var out: Array = []
+	if bool(layout.get("learnset_pairs", false)):
+		for row: int in Gen3Layout.LEARNSET_MAX:
+			var move: int = rom.u16le(at + row * 4)
+			if move == Gen3Layout.LEARNSET_END:
+				return out
+			out.append({"level": rom.u16le(at + row * 4 + 2), "move": move})
+		return []
 	for row: int in Gen3Layout.LEARNSET_MAX:
 		var word: int = rom.u16le(at + row * 2)
 		if word == Gen3Layout.LEARNSET_END:
@@ -241,19 +329,15 @@ static func _read_learnset(rom: RomFile, layout: Dictionary, species: int) -> Ar
 
 
 static func _verify_evolutions(rom: RomFile, layout: Dictionary) -> Dictionary:
-	var at: int = Gen3Layout.evolution_offset(layout, 1, 0)
-	var read: Array[int] = [
-		rom.u16le(at),
-		rom.u16le(at + Gen3Layout.EVOLUTION_PARAMETER),
-		rom.u16le(at + Gen3Layout.EVOLUTION_TARGET),
-	]
-	if read != FIRST_EVOLUTION:
-		return _fail("Bulbasaur's evolution reads %s." % str(read))
-	for species: int in range(1, Gen3Layout.SPECIES_COUNT):
-		for slot: int in Gen3Layout.EVOS_PER_MON:
-			var method: int = rom.u16le(Gen3Layout.evolution_offset(layout, species, slot))
-			if method > Gen3Layout.EVOLUTION_METHOD_LAST:
-				return _fail("Species %d's evolution %d has method %d." % [species, slot, method])
+	var first: Array = _read_evolutions(rom, layout, 1)
+	var wanted: Array = layout.get("verify_first_evolution", FIRST_EVOLUTION)
+	if first.is_empty() \
+		or [first[0].get("method"), first[0].get("parameter"), first[0].get("target")] != wanted:
+		return _fail("Bulbasaur's evolution reads %s." % str(first))
+	for species: int in Gen3Layout.verify_species_list(rom, layout):
+		for entry: Dictionary in _read_evolutions(rom, layout, species):
+			if int(entry["method"]) > Gen3Layout.evolution_method_last(layout):
+				return _fail("Species %d's evolution has method %d." % [species, int(entry["method"])])
 	return _ok()
 
 
@@ -267,6 +351,9 @@ static func _pointed_text(rom: RomFile, at: int) -> Variant:
 
 
 static func _item_name(rom: RomFile, layout: Dictionary, item: int) -> String:
+	if layout.has("item_name_field"):
+		var text: Variant = _pointed_text(rom, Gen3Layout.item_offset(layout, item) + int(layout["item_name_field"]))
+		return String(text) if text != null else ""
 	return Gen3Text.decode_fixed(
 		rom.id, rom.bytes(), Gen3Layout.item_offset(layout, item), Gen3Layout.ITEM_NAME_SIZE
 	)
@@ -275,68 +362,99 @@ static func _item_name(rom: RomFile, layout: Dictionary, item: int) -> String:
 ## Each row's `itemId` is its index or `ITEM_NONE`, which no other stride gives.
 static func _verify_items(rom: RomFile, layout: Dictionary) -> Dictionary:
 	var first: Array = [_item_name(rom, layout, 0), _item_name(rom, layout, 1)]
-	if first != [UNUSED_ITEM_NAME, FIRST_ITEM_NAME]:
+	var first_item_wanted: String = String(layout.get("verify_first_item_name", FIRST_ITEM_NAME))
+	if first != [UNUSED_ITEM_NAME, first_item_wanted]:
 		return _fail("gItems opens on %s." % str(first))
+	var id_field: int = int(layout.get("item_id_field", Gen3Layout.ITEM_ID))
+	var desc_field: int = int(layout.get("item_description_field", Gen3Layout.ITEM_DESCRIPTION))
 	for item: int in int(layout["item_count"]):
 		var at: int = Gen3Layout.item_offset(layout, item)
-		var id: int = rom.u16le(at + Gen3Layout.ITEM_ID)
-		if id != 0 and id != item:
-			return _fail("Item %d's row names item %d." % [item, id])
-		if _pointed_text(rom, at + Gen3Layout.ITEM_DESCRIPTION) == null:
+		if id_field >= 0:
+			var id: int = rom.u16le(at + id_field)
+			if id != 0 and id != item:
+				return _fail("Item %d's row names item %d." % [item, id])
+		if _pointed_text(rom, at + desc_field) == null:
 			return _fail("Item %d's description has no end." % item)
 	return _ok()
 
 
 static func _ability_name(rom: RomFile, layout: Dictionary, ability: int) -> String:
 	return Gen3Text.decode_fixed(
-		rom.id, rom.bytes(), Gen3Layout.ability_name_offset(layout, ability), Gen3Layout.ABILITY_NAME_SIZE
+		rom.id, rom.bytes(), Gen3Layout.ability_name_offset(layout, ability), Gen3Layout.ability_name_size(layout)
 	)
 
 
 static func _verify_abilities(rom: RomFile, layout: Dictionary) -> Dictionary:
 	var read: Array = [
-		_ability_name(rom, layout, 1), _ability_name(rom, layout, Gen3Layout.ABILITY_COUNT - 1),
+		_ability_name(rom, layout, 1), _ability_name(rom, layout, Gen3Layout.ability_count(layout) - 1),
 	]
-	if read != [FIRST_ABILITY_NAME, LAST_ABILITY_NAME]:
+	var last_name: String = String(layout.get("verify_last_ability_name", LAST_ABILITY_NAME))
+	if read != [FIRST_ABILITY_NAME, last_name]:
 		return _fail("gAbilityNames reads %s." % str(read))
-	for ability: int in Gen3Layout.ABILITY_COUNT:
+	for ability: int in Gen3Layout.ability_count(layout):
 		if _pointed_text(rom, Gen3Layout.ability_description_pointer(layout, ability)) == null:
 			return _fail("Ability %d's description has no end." % ability)
 	return _ok()
 
 
 static func _verify_dex_entries(rom: RomFile, layout: Dictionary) -> Dictionary:
-	for number: int in DEX_ENDPOINTS:
-		var entry: Dictionary = _read_dex_entry(rom, layout, number)
+	var wanted: Dictionary = layout.get("verify_dex_endpoints", DEX_ENDPOINTS)
+	var by_national: Dictionary = Gen3Layout.species_by_national(rom, layout)
+	for number: int in wanted:
+		var entry: Dictionary = _read_dex_entry(rom, layout, number, by_national)
 		var read: Array = [entry.get("category"), entry.get("height"), entry.get("weight")]
-		if read != DEX_ENDPOINTS[number]:
+		if read != wanted[number]:
 			return _fail("Dex entry %d reads %s." % [number, str(read)])
-	for number: int in range(1, Gen3Layout.NATIONAL_DEX_COUNT + 1):
-		if _read_dex_entry(rom, layout, number).is_empty():
+	for number: int in range(1, Gen3Layout.national_dex_count(layout) + 1):
+		if _read_dex_entry(rom, layout, number, by_national).is_empty():
 			return _fail("Dex entry %d has a page with no end." % number)
 	return _ok()
 
 
-static func _read_dex_entry(rom: RomFile, layout: Dictionary, number: int) -> Dictionary:
-	var at: int = Gen3Layout.dex_entry_offset(layout, number)
+static func _read_dex_entry(rom: RomFile, layout: Dictionary, number: int, by_national: Dictionary = {}) -> Dictionary:
+	if bool(layout.get("dex_entry_from_species", false)):
+		if by_national.is_empty():
+			by_national = Gen3Layout.species_by_national(rom, layout)
+		if not by_national.has(number):
+			return {}
+		var species: int = int(by_national[number])
+		var at: int = Gen3Layout.species_info_offset(layout, species)
+		var desc: Variant = _pointed_text(rom, at + int(layout["species_dex_description_field"]))
+		if desc == null:
+			return {}
+		var scales: Array = layout["species_dex_scale_fields"]
+		return {
+			"category": Gen3Text.decode_fixed(
+				rom.id, rom.bytes(), at + int(layout["species_dex_category_field"]),
+				int(layout["species_dex_category_size"])
+			),
+			"height": rom.u16le(at + int(layout["species_dex_height_field"])),
+			"weight": rom.u16le(at + int(layout["species_dex_weight_field"])),
+			"pages": [desc],
+			"pokemon_scale": rom.u16le(at + int(scales[0])),
+			"pokemon_offset": rom.s16le(at + int(scales[1])),
+			"trainer_scale": rom.u16le(at + int(scales[2])),
+			"trainer_offset": rom.s16le(at + int(scales[3])),
+		}
+	var entry_at: int = Gen3Layout.dex_entry_offset(layout, number)
 	var pages: Array = []
 	for page: int in int(layout["dex_pages"]):
 		var text: Variant = _pointed_text(
-			rom, at + Gen3Layout.DEX_ENTRY_DESCRIPTION + page * Gen3Layout.POINTER_SIZE
+			rom, entry_at + Gen3Layout.DEX_ENTRY_DESCRIPTION + page * Gen3Layout.POINTER_SIZE
 		)
 		if text == null:
 			return {}
 		pages.append(text)
-	var scales: int = at + int(layout["dex_entry_size"]) - Gen3Layout.DEX_ENTRY_SCALES_FROM_END
+	var scales_at: int = entry_at + int(layout["dex_entry_size"]) - Gen3Layout.DEX_ENTRY_SCALES_FROM_END
 	return {
-		"category": Gen3Text.decode_fixed(rom.id, rom.bytes(), at, Gen3Layout.DEX_ENTRY_CATEGORY_SIZE),
-		"height": rom.u16le(at + Gen3Layout.DEX_ENTRY_HEIGHT),
-		"weight": rom.u16le(at + Gen3Layout.DEX_ENTRY_WEIGHT),
+		"category": Gen3Text.decode_fixed(rom.id, rom.bytes(), entry_at, Gen3Layout.DEX_ENTRY_CATEGORY_SIZE),
+		"height": rom.u16le(entry_at + Gen3Layout.DEX_ENTRY_HEIGHT),
+		"weight": rom.u16le(entry_at + Gen3Layout.DEX_ENTRY_WEIGHT),
 		"pages": pages,
-		"pokemon_scale": rom.u16le(scales),
-		"pokemon_offset": rom.s16le(scales + 2),
-		"trainer_scale": rom.u16le(scales + 4),
-		"trainer_offset": rom.s16le(scales + 6),
+		"pokemon_scale": rom.u16le(scales_at),
+		"pokemon_offset": rom.s16le(scales_at + 2),
+		"trainer_scale": rom.u16le(scales_at + 4),
+		"trainer_offset": rom.s16le(scales_at + 6),
 	}
 
 
@@ -372,8 +490,11 @@ static func import_rom(rom: RomFile, on_progress: Callable = Callable()) -> Dict
 	var abilities: Array = _import_abilities(rom, layout)
 	var world: Dictionary = Gen3World.read(rom, layout)
 	var tmhm_moves: Array = []
-	for index: int in TMHM_COUNT:
-		tmhm_moves.append(rom.u16le(int(layout["tmhm_moves"]) + index * 2))
+	var tmhm_count: int = int(layout.get("tmhm_count", TMHM_COUNT))
+	var tmhm_stride: int = int(layout.get("tmhm_stride", 2))
+	var tmhm_move_field: int = int(layout.get("tmhm_move_field", 0))
+	for index: int in tmhm_count:
+		tmhm_moves.append(rom.u16le(int(layout["tmhm_moves"]) + index * tmhm_stride + tmhm_move_field))
 	var sections: Dictionary = {
 		RomCache.tmhm_moves_path(directory): tmhm_moves,
 		RomCache.species_path(directory): species,
@@ -459,11 +580,11 @@ static func _count_of(species: Array, key: String) -> int:
 
 ## By national dex number; `index` is the internal species.
 static func _import_species(rom: RomFile, layout: Dictionary, on_progress: Callable) -> Array:
-	var by_national: Dictionary = _species_by_national(rom, layout)
+	var by_national: Dictionary = Gen3Layout.species_by_national(rom, layout)
 	var out: Array = []
-	for number: int in range(1, Gen3Layout.NATIONAL_DEX_COUNT + 1):
+	for number: int in range(1, Gen3Layout.national_dex_count(layout) + 1):
 		var species: int = int(by_national[number])
-		var record: Dictionary = _species_info(rom, Gen3Layout.species_info_offset(layout, species))
+		var record: Dictionary = _species_info(rom, layout, Gen3Layout.species_info_offset(layout, species))
 		record.merge({
 			"number": number,
 			"index": species,
@@ -471,19 +592,51 @@ static func _import_species(rom: RomFile, layout: Dictionary, on_progress: Calla
 			"name": _species_name(rom, layout, species),
 			"learnset": _read_learnset(rom, layout, species),
 			"evolutions": _read_evolutions(rom, layout, species),
-			"dex": _read_dex_entry(rom, layout, number),
+			"dex": _read_dex_entry(rom, layout, number, by_national),
 			"palette": Gen3Pics.palette(rom, layout, species),
 			"front_tiles": [Gen3Layout.PIC_TILES, Gen3Layout.PIC_TILES],
 			"pic_coordinates": Gen3Pics.coordinates(rom, layout, species),
 		})
 		out.append(record)
 		if on_progress.is_valid():
-			on_progress.call("species", number, Gen3Layout.NATIONAL_DEX_COUNT)
+			on_progress.call("species", number, Gen3Layout.national_dex_count(layout))
 	return out
 
 
 ## Abilities, items, egg groups and growth rate keep cartridge numbers; Generation 3 reorders Generation 2's growth rates.
-static func _species_info(rom: RomFile, at: int) -> Dictionary:
+## pokeemerald-expansion widens the struct: expYield/evYield are u16, abilities are three u16s,
+## and the color byte moves to +80; the first eight bytes keep the vanilla layout.
+static func _species_info(rom: RomFile, layout: Dictionary, at: int) -> Dictionary:
+	if layout.has("species_natdex_field"):
+		var ev_word: int = rom.u16le(at + 12)
+		var ev_yield: Dictionary = {}
+		for stat: int in Gen3Layout.EV_YIELD_STATS.size():
+			ev_yield[Gen3Layout.EV_YIELD_STATS[stat]] = (ev_word >> (stat * 2)) & 0x3
+		var color: int = rom.u8(at + 80)
+		return {
+			"stats": {
+				"hp": rom.u8(at + Gen3Layout.INFO_HP),
+				"attack": rom.u8(at + Gen3Layout.INFO_ATTACK),
+				"defense": rom.u8(at + Gen3Layout.INFO_DEFENSE),
+				"speed": rom.u8(at + Gen3Layout.INFO_SPEED),
+				"sp_attack": rom.u8(at + Gen3Layout.INFO_SP_ATTACK),
+				"sp_defense": rom.u8(at + Gen3Layout.INFO_SP_DEFENSE),
+			},
+			"types": [rom.u8(at + Gen3Layout.INFO_TYPES), rom.u8(at + Gen3Layout.INFO_TYPES + 1)],
+			"catch_rate": rom.u8(at + Gen3Layout.INFO_CATCH_RATE),
+			"base_exp": rom.u16le(at + 10),
+			"ev_yield": ev_yield,
+			"items": [rom.u16le(at + 14), rom.u16le(at + 16)],
+			"gender_ratio": rom.u8(at + 18),
+			"egg_cycles": rom.u8(at + 19),
+			"friendship": rom.u8(at + 20),
+			"growth_rate": rom.u8(at + 21),
+			"egg_groups": [rom.u8(at + 22), rom.u8(at + 23)],
+			"abilities": [rom.u16le(at + 24), rom.u16le(at + 26), rom.u16le(at + 28)],
+			"safari_flee_rate": rom.u8(at + 30),
+			"body_color": color & ~Gen3Layout.NO_FLIP_BIT,
+			"no_flip": (color & Gen3Layout.NO_FLIP_BIT) != 0,
+		}
 	var ev_word: int = rom.u16le(at + Gen3Layout.INFO_EV_YIELD)
 	var ev_yield: Dictionary = {}
 	for stat: int in Gen3Layout.EV_YIELD_STATS.size():
@@ -521,16 +674,34 @@ static func _species_info(rom: RomFile, at: int) -> Dictionary:
 
 static func _read_evolutions(rom: RomFile, layout: Dictionary, species: int) -> Array:
 	var out: Array = []
+	var at: int = Gen3Layout.evolution_table_offset(rom, layout, species)
+	if at < 0:
+		return out
+	var size: int = Gen3Layout.evolution_size(layout)
+	if layout.has("evolution_end"):
+		var end: int = int(layout["evolution_end"])
+		for slot: int in 64:
+			var method: int = rom.u16le(at + slot * size)
+			if method == end:
+				return out
+			out.append({
+				"method": method,
+				"parameter": rom.u16le(at + slot * size + Gen3Layout.EVOLUTION_PARAMETER),
+				"target": Gen3Layout.national_number(
+					rom, layout, rom.u16le(at + slot * size + Gen3Layout.EVOLUTION_TARGET)
+				),
+			})
+		return []
 	for slot: int in Gen3Layout.EVOS_PER_MON:
-		var at: int = Gen3Layout.evolution_offset(layout, species, slot)
-		var method: int = rom.u16le(at)
+		var sat: int = at + slot * size
+		var method: int = rom.u16le(sat)
 		if method == 0:
 			continue
 		out.append({
 			"method": method,
-			"parameter": rom.u16le(at + Gen3Layout.EVOLUTION_PARAMETER),
+			"parameter": rom.u16le(sat + Gen3Layout.EVOLUTION_PARAMETER),
 			"target": Gen3Layout.national_number(
-				rom, layout, rom.u16le(at + Gen3Layout.EVOLUTION_TARGET)
+				rom, layout, rom.u16le(sat + Gen3Layout.EVOLUTION_TARGET)
 			),
 		})
 	return out
@@ -538,63 +709,75 @@ static func _read_evolutions(rom: RomFile, layout: Dictionary, species: int) -> 
 
 static func _import_moves(rom: RomFile, layout: Dictionary, on_progress: Callable) -> Array:
 	var out: Array = []
-	for move: int in range(1, Gen3Layout.MOVES_COUNT):
-		var at: int = Gen3Layout.move_offset(layout, move)
-		out.append({
-			"number": move,
-			"name": _move_name(rom, layout, move),
-			"effect": rom.u8(at + Gen3Layout.MOVE_EFFECT),
-			"power": rom.u8(at + Gen3Layout.MOVE_POWER),
-			"type": rom.u8(at + Gen3Layout.MOVE_TYPE),
-			"accuracy": rom.u8(at + Gen3Layout.MOVE_ACCURACY),
-			"pp": rom.u8(at + Gen3Layout.MOVE_PP),
-			"effect_chance": rom.u8(at + Gen3Layout.MOVE_EFFECT_CHANCE),
-			"target": rom.u8(at + Gen3Layout.MOVE_TARGET),
-			"priority": rom.s8(at + Gen3Layout.MOVE_PRIORITY),
-			"flags": rom.u8(at + Gen3Layout.MOVE_FLAGS),
-		})
+	for move: int in range(1, Gen3Layout.moves_count(layout)):
+		var record: Dictionary = _move_record(rom, layout, move)
+		record["number"] = move
+		record["name"] = _move_name(rom, layout, move)
+		out.append(record)
 		if on_progress.is_valid():
-			on_progress.call("moves", move, Gen3Layout.MOVES_COUNT - 1)
+			on_progress.call("moves", move, Gen3Layout.moves_count(layout) - 1)
 	return out
 
 
 static func _import_types(rom: RomFile, layout: Dictionary) -> Array:
 	var out: Array = []
-	for type: int in Gen3Layout.TYPE_COUNT:
+	for type: int in Gen3Layout.type_count(layout):
 		out.append({
 			"number": type,
 			"name": _type_name(rom, layout, type),
-			"special": Gen3Layout.is_special_type(type),
+			"special": Gen3Layout.is_special_type(type, layout),
 		})
 	return out
 
 
 ## Cartridge numbers, like [method _species_info]'s; pockets differ between games.
+## pokeemerald-expansion's ItemInfo keeps the price as u32, the name/description as
+## pointers, and importance/not-consumed/pocket as one bitfield byte at +30.
+static func _item_record(rom: RomFile, layout: Dictionary, item: int) -> Dictionary:
+	var at: int = Gen3Layout.item_offset(layout, item)
+	if layout.has("item_name_field"):
+		var bits: int = rom.u8(at + 30)
+		return {
+			"unused": false,
+			"price": rom.u32le(at),
+			"hold_effect": rom.u8(at + 28),
+			"hold_effect_parameter": rom.u8(at + 29),
+			"description": _pointed_text(rom, at + int(layout["item_description_field"])),
+			"importance": bits & 3,
+			"registrability": 0,  # no registrability field in ItemInfo
+			"pocket": (bits >> 3) & 31,
+			"type": rom.u8(at + 32),
+			"battle_usage": rom.u8(at + 33),
+			"secondary_id": rom.u16le(at + 4),
+		}
+	return {
+		"unused": rom.u16le(at + Gen3Layout.ITEM_ID) == 0,
+		"price": rom.u16le(at + Gen3Layout.ITEM_PRICE),
+		"hold_effect": rom.u8(at + Gen3Layout.ITEM_HOLD_EFFECT),
+		"hold_effect_parameter": rom.u8(at + Gen3Layout.ITEM_HOLD_EFFECT_PARAM),
+		"description": _pointed_text(rom, at + Gen3Layout.ITEM_DESCRIPTION),
+		"importance": rom.u8(at + Gen3Layout.ITEM_IMPORTANCE),
+		"registrability": rom.u8(at + Gen3Layout.ITEM_REGISTRABILITY),
+		"pocket": rom.u8(at + Gen3Layout.ITEM_POCKET),
+		"type": rom.u8(at + Gen3Layout.ITEM_TYPE),
+		"battle_usage": rom.u8(at + Gen3Layout.ITEM_BATTLE_USAGE),
+		"secondary_id": rom.u8(at + Gen3Layout.ITEM_SECONDARY_ID),
+	}
+
+
 static func _import_items(rom: RomFile, layout: Dictionary) -> Array:
 	var out: Array = []
 	for item: int in range(1, int(layout["item_count"])):
-		var at: int = Gen3Layout.item_offset(layout, item)
-		out.append({
-			"number": item,
-			"name": _item_name(rom, layout, item),
-			"unused": rom.u16le(at + Gen3Layout.ITEM_ID) == 0,
-			"price": rom.u16le(at + Gen3Layout.ITEM_PRICE),
-			"hold_effect": rom.u8(at + Gen3Layout.ITEM_HOLD_EFFECT),
-			"hold_effect_parameter": rom.u8(at + Gen3Layout.ITEM_HOLD_EFFECT_PARAM),
-			"description": _pointed_text(rom, at + Gen3Layout.ITEM_DESCRIPTION),
-			"importance": rom.u8(at + Gen3Layout.ITEM_IMPORTANCE),
-			"registrability": rom.u8(at + Gen3Layout.ITEM_REGISTRABILITY),
-			"pocket": rom.u8(at + Gen3Layout.ITEM_POCKET),
-			"type": rom.u8(at + Gen3Layout.ITEM_TYPE),
-			"battle_usage": rom.u8(at + Gen3Layout.ITEM_BATTLE_USAGE),
-			"secondary_id": rom.u8(at + Gen3Layout.ITEM_SECONDARY_ID),
-		})
+		var record: Dictionary = _item_record(rom, layout, item)
+		record["number"] = item
+		record["name"] = _item_name(rom, layout, item)
+		out.append(record)
 	return out
 
 
 static func _import_abilities(rom: RomFile, layout: Dictionary) -> Array:
 	var out: Array = []
-	for ability: int in Gen3Layout.ABILITY_COUNT:
+	for ability: int in Gen3Layout.ability_count(layout):
 		out.append({
 			"number": ability,
 			"name": _ability_name(rom, layout, ability),

@@ -95,7 +95,7 @@ static func is_valid(path: String) -> bool:
 
 static func _size_list() -> PackedStringArray:
 	var out: PackedStringArray = []
-	for size: int in RomRegistry.SIZES.values():
+	for size: int in RomRegistry.known_sizes():
 		out.append("%d bytes" % size)
 	return out
 

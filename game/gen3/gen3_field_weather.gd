@@ -108,7 +108,7 @@ func _init(game: GameData, palettes: Gen3Palette, event_data: Gen3EventData) -> 
 	events = event_data
 	_ruby = game.id in [RomRegistry.RUBY, RomRegistry.SAPPHIRE]
 	_frlg = game.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN]
-	_emerald = game.id == RomRegistry.EMERALD
+	_emerald = game.id in [RomRegistry.EMERALD, RomRegistry.HEARTSOUL]
 	sprites = Gen3WeatherSprites.new(game)
 	sprites.events = event_data
 	var weather: Dictionary = game.world_weather()

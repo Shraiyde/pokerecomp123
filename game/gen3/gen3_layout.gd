@@ -141,6 +141,17 @@ const EMERALD_MAP_GROUP_SIZES: Array[int] = [
 	3, 1,
 ]
 
+## Heart & Soul group sizes from pokehns-expansion's data/maps/map_groups.json (106 groups, 1495 maps).
+const HEARTSOUL_MAP_GROUP_SIZES: Array[int] = [
+	71, 5, 5, 6, 5, 29, 9, 10, 6, 6, 6, 5, 5, 7, 6, 9, 7, 18,
+	10, 7, 1, 7, 35, 28, 91, 5, 15, 1, 6, 15, 108, 57, 5, 5,
+	6, 7, 8, 9, 7, 7, 14, 8, 17, 10, 23, 13, 15, 15, 2, 2,
+	2, 3, 1, 1, 1, 108, 77, 89, 2, 1, 13, 1, 1, 3, 1, 5,
+	123, 60, 62, 4, 6, 8, 10, 6, 8, 20, 10, 8, 2, 10, 4, 2,
+	2, 1, 1, 1, 2, 2, 3, 2, 3, 2, 1, 1, 6, 5, 5, 8, 8, 5, 5,
+	1, 1, 1, 2, 1,
+]
+
 ## gStdScripts and the five trainer-battle entry points come from nm on the matching pret builds (Sapphire's
 ## scripts shift). `gInitialMovementTypeFacingDirections` follows `gRangedMovementTypes`; the graphics-info
 ## pointers run `NUM_OBJ_EVENT_GFX` long, Emerald's `gMauvilleOldManGraphicsInfoPointers` after them.
@@ -530,6 +541,202 @@ const EMERALD: Dictionary = {
 }
 
 
+## Heart & Soul (pokehns-expansion, hns-coop-114). Offsets found by content matching against the ROM, never
+## from another game's layout: every table below was verified by decoding at least its first two entries
+## against the source. pokeemerald-expansion restructured most vanilla tables into structs, so the
+## species/move/type/ability/item data lives as FIELDS inside gSpeciesInfo (268 B), gMovesInfo (68 B),
+## gTypesInfo (40 B), gAbilitiesInfo (28 B) and gItemsInfo (44 B) — the layout keys below name those
+## fields, and the accessors after for_id() read them. Counts are the real ones from the source.
+## Wild encounters: gWildMonHeaders is at 0x1187324, 167 headers x 84 B, FF FF terminator at
+## 0x118a9f0. Verified by pointer-chain tracing against the source JSON (Route 29_hns and
+## WhirlIslands_B3F match exactly). The generated table lists 556 entries, but this ROM's
+## table holds 167 (HNS maps); Route 101's Hoenn mons do not occur in the dump. World tables
+## (movement types, object graphics, palettes, scripts, weather, doors, berries) are wired
+## below from ~/workspace/github-check/pokerecomp-heartsoul-addresses-world.md.
+const HEARTSOUL: Dictionary = {
+	"map_groups": 0x12e1204,
+	"map_layouts": [0x12da89c, 1331],
+	"map_group_sizes": HEARTSOUL_MAP_GROUP_SIZES,
+	"wild_headers": 0x1187324,
+	"wild_header_count": 167,
+	# Region map (src/data/region_map/): gRegionMapEntries (RegionMapLocation, 8 B) and
+	# sRegionMapSections_Johto (15x28 MAPSEC grid). Not consumed by the Gen3 importer yet.
+	"region_map_entries": 0xd57a4c,
+	"region_map_entry_count": 125,
+	"region_map_layout_johto": 0xd5865c,
+	"region_map_layout_rows": 15,
+	"region_map_layout_cols": 28,
+
+	# World tables (~/workspace/github-check/pokerecomp-heartsoul-addresses-world.md).
+	# H&S shapes differ from vanilla in several places; the readers in gen3_world.gd
+	# branch on the keys below. Spinda spots and icon_template were NOT FOUND — omitted.
+	"movement_types": 0x501b08,  # gInitialMovementTypeFacingDirections
+	"movement_types_ranged": 0x501f74,  # sMovementTypeHasRange (NOT adjacent to facing)
+	"movement_type_count": 84,  # NUM_MOVEMENT_TYPES
+	"object_palettes": 0x505260,  # sObjectEventSpritePalettes, 109 x 8 B + NULL
+	"object_palette_tags": 0x502120,  # sObjectPaletteTagSetsHns, 4 ptrs to 10-u16 sets
+	"player_reflection_palettes": 0x5020a4,  # sPlayerReflectionPaletteSets, 5 x 8 B
+	"special_reflection_palettes": 0x505160,  # sSpecialObjectReflectionPaletteSets, 15 x 8 B
+	"object_graphics": 0x50e2a4,  # gObjectEventGraphicsInfoPointers
+	"object_graphics_count": 548,  # NUM_OBJ_EVENT_GFX
+	"step_anims": 0x501e70,  # sStepAnimTables, 9 x 8 B + NULL
+	"surfable_behaviors": 0x7b5864,  # sTileBitAttributes, 243 B (reader reads 256)
+	"shadow_templates": 0x50e1f0,  # gFieldEffectObjectTemplatePointers, 44 ptrs
+	"general_palette": 0x58b6c8,  # gFieldEffectObjectPalette0, tag 0x1004
+	"grass_palette": 0x58b6a8,  # gFieldEffectObjectPalette1, tag 0x1005
+	"ash_palette": 0x587b28,  # gFieldEffectPal_Ash, tag 0x100D
+	"weather_palette": 0x60713c,  # gCloudsWeatherPalette, 32 B
+	# Weather sheets are scattered/reversed vs the vanilla sequential read; each sheet by name.
+	"weather_sheet_offsets": {"cloud_palette": 0x60713c, "sandstorm_palette": 0x6071f0,
+		"fog_diagonal": 0x60a8e0, "fog_horizontal": 0x60a0e0, "cloud": 0x6098e0, "snow": 0x6098a0,
+		"bubble": 0x609860, "ash": 0x608860, "rain": 0x608260, "sandstorm": 0x607860},
+	"drought_colors": 0x5faaf0,  # sDroughtWeatherColors, 6 x 0x2000
+	"cut_grass_template": 0x60b214,  # sSpriteTemplate_CutGrass
+	"cut_grass_palette": 0x60b22c,  # gSpritePalette_CutGrass (template+24, not template-8)
+	"secret_power_templates": 0x60b650,  # Cave/Tree/Shrub, 3 x 24 B
+	"secret_power_palettes": [0x60b8e0, 0x60b8d8],  # Cave (0x1003), Plant (0x1008)
+	# Heal templates are NOT consecutive; HofMonitorSmall was not located, so only 3.
+	"heal_templates": [0x5f58f0, 0x5f5908, 0x5f59b0],  # Glow, Monitor, HofBig
+	"heal_palettes": [0x5f5bfc, 0x5f5bf4],  # Glow (0x1007), HoF (0x1010) — reversed vs vanilla
+	"small_sparkle_palette": 0x5032b4,  # tag 0x100F; template follows at 0x5032bc
+	"text_box": {"fonts": [[0x64e5f0, 0x64e3f0], [0x666bf0, 0x6669f0], [0x65e9f0, 0x65e7f0]],
+		"frame": [0x67e8b8, 0x1C0], "frame_palette": 0x67ea78, "arrow": [0xf63510, 0xC0],
+		"std_frame": [0xf6537c, 0x120], "std_frame_palette": 0xf63a5c, "signpost": [0x67e818, 0xa0]},
+	"door_graphics": 0x5ee9d0,  # sDoorAnimGraphicsTable, 78 rows
+	"door_row_bytes": 20,  # H&S rows are 20 B (tileset ptr +4, tiles +12, palettes +16)
+	# Field-move streak components are scattered, not one contiguous blob per variant.
+	"field_move_streaks": {"gfx": 0x5f6d7c, "pal": 0x5f596c, "tilemap": 0x5f6afc},
+	"field_move_streaks_indoors": {"gfx": 0x5f6a7c, "pal": 0x5f594c, "tilemap": 0x5f67fc},
+	"berries": 0x4b0df8,  # gBerries, 68 x 28 B
+	"berry_count": 67,  # entries 0..66 valid; [67] Enigma E-Reader is filler
+	"berry_min_yield_nibble": true,  # minYield is a 4-bit field packed with waterBonus at +11
+	"berry_graphics_shared": 0x5021e8,  # gBerryTreeObjectEventGraphicsIdTable, 7 B (no per-berry table)
+	"berry_palettes": 0x504134,  # gBerryTreePaletteSlotTablePointers, 68 ptrs
+	"berry_pics": 0x504248,  # gBerryTreePicTablePointers, 68 ptrs
+	"standard_scripts": 0x2966b8,  # gStdScripts
+	"standard_script_count": 13,
+	"trainer_battle_scripts": [0x332068, 0x332096, 0x3320CE, 0x3320E3, 0x33210A],
+	"multichoice_lists": [0xd5ffa8, 178],
+	"std_strings": [0xd5ff00, 40],
+	"start_menu": [0xd6b1a4, 16],  # no start_menu_help in H&S
+	"native_scripts": {
+		"trainer_approach": 0x33205C, "cave_use_secret_power": 0x33941c,
+		"tree_use_secret_power": 0x339475, "shrub_use_secret_power": 0x3394ce,
+		"use_surf": 0x334fcd, "use_waterfall": 0x3524e9, "cannot_use_waterfall": 0x352519,
+		"egg_hatch": 0x35341b, "hidden_item": 0x33496e, "pc": 0x334bbe,
+		"field_poison": 0x3372a5, "test_signpost": 0x38ecf4, "repel_wore_off": 0x36622b,
+		"region_map": 0x33542b, "fall_down_hole": 0x36b614, "fall_down_hole_mt_pyre": 0x36b62d,
+		"questionnaire": 0x3374a5, "cancel_message_box": 0x3353d1, "current_too_fast": 0x335004,
+		"sand_ornament": 0x2fc3c7, "shield_or_toy_tv": 0x2fc3cf, "cable_box_results": 0x33ad02,
+		"picture_book_shelf": 0x335adb, "book_shelf": 0x335ae4,
+		"pokemon_center_book_shelf": 0x335aed, "vase": 0x335af6, "trash_can": 0x335aff,
+		"shop_shelf": 0x335b08, "blueprint": 0x335b11},
+	# callnative targets that take trailing argument bytes (facilitytrainerbattle /
+	# dofacilitytrainerbattle macros append a .byte facility id after the call;
+	# isfollowerfieldmoveuser appends a .2byte var). Map: native function pointer
+	# (normalized, without the ROM_SIZE offset requests_effects adds) -> trailing bytes.
+	"native_call_args": {0x08078025: 1, 0x08078611: 1, 0x080F09C1: 1, 0x0812BA59: 2, 0x0812B975: 4, 0x08209465: 2, 0x08160895: 2, 0x0820CD59: 10, 0x082087AD: 26, 0x080B9009: 14},
+	"mauville_graphics": 0x502070,  # gMauvilleOldManGraphicsInfoPointers
+	"mauville_graphics_count": 7,
+	"trainer_backsprites": 0x713ef0,  # gTrainerBacksprites, 14 x 24 B
+	"wild_header_size": 84,  # WildPokemonHeader is 84 B (4 time-of-day slots)
+	"wild_method_base": 24,  # TIME_DAY slot: land ptr at header+24
+
+	"species_info": 0x7e81a4,  # gSpeciesInfo
+	"species_info_size": 268,
+	"species_name_field": 44,
+	"species_name_size": 13,
+	"species_natdex_field": 60,
+	"species_learnset_field": 152,
+	"species_evolutions_field": 164,
+	"species_dex_category_field": 31,
+	"species_dex_category_size": 13,
+	"species_dex_height_field": 62,
+	"species_dex_weight_field": 64,
+	"species_dex_description_field": 76,
+	"species_dex_scale_fields": [66, 68, 70, 72],
+	"species_front_pic_field": 88,
+	"species_back_pic_field": 92,
+	"species_palette_field": 96,
+	"species_shiny_palette_field": 100,
+	"species_front_coords_field": 136,
+	"species_back_coords_field": 138,
+	"species_count": 1573,  # NUM_SPECIES (includes form species and empty slots)
+	"national_dex_count": 1080,  # distinct natDexNum values in the ROM are exactly 1..1080
+	"species_primary_lowest": true,  # form species share a natDexNum; the lowest index is the primary
+	"pic_table_count": 1573,
+
+	"moves": 0x7b7818,  # gMovesInfo
+	"move_size": 68,
+	"moves_count": 848,  # MOVES_COUNT (table holds 935 entries incl. Max/G-Max moves)
+	"move_name_pointer": true,
+
+	"types": 0x477584,  # gTypesInfo
+	"type_struct_size": 40,
+	"type_name_size": 9,
+	"type_count": 21,  # NUMBER_OF_MON_TYPES (TYPE_NONE 0, MYSTERY 10, DARK 18, FAIRY 19, STELLAR 20)
+	"type_mystery": 10,
+	"type_effectiveness": 0x4778cc,  # gTypeEffectivenessTable, 21x21 u32 matrix
+	"type_effectiveness_matrix": true,
+
+	"abilities": 0xd37394,  # gAbilitiesInfo
+	"ability_struct_size": 28,
+	"ability_name_size": 17,
+	"ability_desc_field": 20,
+	"ability_count": 311,  # ABILITIES_COUNT
+
+	"items": 0x790b70,  # gItemsInfo
+	"item_struct_size": 44,
+	"item_name_field": 20,
+	"item_description_field": 12,
+	"item_id_field": -1,  # no itemId field; the index is the id
+	"item_count": 901,  # ITEMS_COUNT
+
+	"evolution_size": 12,  # struct Evolution is 12 bytes; lists end on method 0xFFFF
+	"evolution_end": 0xFFFF,
+	"evolution_method_last": 8,  # EVO_SPIN
+	"learnset_pairs": true,  # learnsets are {u16 move, u16 level} pairs ending on move 0xFFFF
+
+	"dex_entry_from_species": true,  # no gPokedexEntries table; dex data is in gSpeciesInfo
+	"dex_pages": 1,
+
+	"tmhm_moves": 0x7909dc,  # gTMHMItemMoveIds, {u16 itemId, u16 moveId}
+	"tmhm_count": 100,  # NUM_ALL_MACHINES
+	"tmhm_stride": 4,
+	"tmhm_move_field": 2,
+
+	"trainers": 0x4cb83c,  # gTrainers (EASY difficulty block only; NORMAL is zeros)
+	"trainer_struct_size": 52,
+	"trainer_count": 653,  # TRAINERS_COUNT_HNS
+	"trainer_name_size": 11,  # TRAINER_NAME_LENGTH + 1
+	"trainer_party_size": 36,  # struct TrainerMon is a fixed 36 bytes (no per-flag strides)
+	"trainer_class_names": 0x476ac4,  # gTrainerClasses
+	"trainer_class_struct_size": 16,
+	"trainer_class_count": 172,  # TRAINER_CLASS_COUNT
+	"trainer_money_field": 13,  # money is TrainerClass.money; no separate gTrainerMoney table
+	"trainer_pics": 0x7140d8,  # gTrainerSprites
+	"trainer_pic_struct_size": 32,
+	"trainer_pic_count": 210,  # TRAINER_PIC_FRONT_COUNT
+	"skip_empty_trainers": true,  # slot 330 is all zeros (unused)
+	"unown_form_base": 1024,  # Unown letter forms live at 1024..1050, not 413..
+	"deoxys_index": 386,
+
+	"verify_last_species": 1523,  # slot 1572 (species_count - 1) is empty; last populated is MIMIKYU
+	"verify_last_species_name": "MIMIKYU",
+	"verify_first_info": [45, 49, 49, 45, 65, 65, 13, 4, 45, 0],
+	"verify_dex_numbers": {1: [1, 1], 1487: [25, 25], 964: [1034, 1034], 1434: [1025, 1025]},
+	"verify_first_move": {"effect": 1, "power": 40, "type": 1, "accuracy": 100, "pp": 35},
+	"verify_last_move": {"power": 100, "type": 4, "accuracy": 100, "pp": 5},
+	"verify_last_move_name": "MALIGNANT CHAIN",
+	"verify_first_type_name": "NONE",
+	"verify_last_type_name": "STELLAR",
+	"verify_first_evolution": [1, 16, 2],
+	"verify_first_item_name": "POKé BALL",
+	"verify_last_ability_name": "POISON PUPPETEER",
+	"verify_dex_endpoints": {1: ["Seed", 7, 69], 25: ["Mouse", 4, 60], 1034: ["Mole", 7, 666]},
+}
+
+
 static func for_id(id: StringName) -> Dictionary:
 	match id:
 		RomRegistry.RUBY:
@@ -542,7 +749,45 @@ static func for_id(id: StringName) -> Dictionary:
 			return LEAFGREEN
 		RomRegistry.EMERALD:
 			return EMERALD
+		RomRegistry.HEARTSOUL:
+			return HEARTSOUL
 	return {}
+
+
+## Per-game counts. The constants above are the vanilla values; a layout may
+## override them (Heart & Soul carries more species, moves, abilities, items
+## and types than any vanilla cartridge). Callers that have a layout must use
+## these instead of the constants, so vanilla imports are unaffected.
+static func species_count(layout: Dictionary) -> int:
+	return int(layout.get("species_count", SPECIES_COUNT))
+
+
+static func moves_count(layout: Dictionary) -> int:
+	return int(layout.get("moves_count", MOVES_COUNT))
+
+
+static func ability_count(layout: Dictionary) -> int:
+	return int(layout.get("ability_count", ABILITY_COUNT))
+
+
+static func type_count(layout: Dictionary) -> int:
+	return int(layout.get("type_count", TYPE_COUNT))
+
+
+static func type_mystery(layout: Dictionary) -> int:
+	return int(layout.get("type_mystery", TYPE_MYSTERY))
+
+
+static func national_dex_count(layout: Dictionary) -> int:
+	return int(layout.get("national_dex_count", NATIONAL_DEX_COUNT))
+
+
+static func pic_table_count(layout: Dictionary) -> int:
+	return int(layout.get("pic_table_count", PIC_TABLE_COUNT))
+
+
+static func evolution_method_last(layout: Dictionary) -> int:
+	return int(layout.get("evolution_method_last", EVOLUTION_METHOD_LAST))
 
 
 ## -1 for a pointer outside the cartridge window.
@@ -553,15 +798,21 @@ static func rom_offset(pointer: int) -> int:
 
 
 static func species_info_offset(layout: Dictionary, species: int) -> int:
-	return int(layout["species_info"]) + species * SPECIES_INFO_SIZE
+	return int(layout["species_info"]) + species * int(layout.get("species_info_size", SPECIES_INFO_SIZE))
 
 
 static func species_name_offset(layout: Dictionary, species: int) -> int:
+	if layout.has("species_name_field"):
+		return species_info_offset(layout, species) + int(layout["species_name_field"])
 	return int(layout["species_names"]) + species * SPECIES_NAME_SIZE
 
 
+static func species_name_size(layout: Dictionary) -> int:
+	return int(layout.get("species_name_size", SPECIES_NAME_SIZE))
+
+
 static func move_offset(layout: Dictionary, move: int) -> int:
-	return int(layout["moves"]) + move * MOVE_SIZE
+	return int(layout["moves"]) + move * int(layout.get("move_size", MOVE_SIZE))
 
 
 static func move_name_offset(layout: Dictionary, move: int) -> int:
@@ -569,18 +820,33 @@ static func move_name_offset(layout: Dictionary, move: int) -> int:
 
 
 static func type_name_offset(layout: Dictionary, type: int) -> int:
+	if layout.has("type_struct_size"):
+		return int(layout["types"]) + type * int(layout["type_struct_size"])
 	return int(layout["type_names"]) + type * TYPE_NAME_SIZE
 
 
+static func type_name_size(layout: Dictionary) -> int:
+	return int(layout.get("type_name_size", TYPE_NAME_SIZE))
+
+
 static func item_offset(layout: Dictionary, item: int) -> int:
-	return int(layout["items"]) + item * ITEM_SIZE
+	return int(layout["items"]) + item * int(layout.get("item_struct_size", ITEM_SIZE))
 
 
 static func ability_name_offset(layout: Dictionary, ability: int) -> int:
+	if layout.has("ability_struct_size"):
+		return int(layout["abilities"]) + ability * int(layout["ability_struct_size"])
 	return int(layout["ability_names"]) + ability * ABILITY_NAME_SIZE
 
 
+static func ability_name_size(layout: Dictionary) -> int:
+	return int(layout.get("ability_name_size", ABILITY_NAME_SIZE))
+
+
 static func ability_description_pointer(layout: Dictionary, ability: int) -> int:
+	if layout.has("ability_struct_size"):
+		return int(layout["abilities"]) + ability * int(layout["ability_struct_size"]) \
+			+ int(layout["ability_desc_field"])
 	return int(layout["ability_descriptions"]) + ability * POINTER_SIZE
 
 
@@ -592,23 +858,85 @@ static func evolution_offset(layout: Dictionary, species: int, slot: int) -> int
 	return int(layout["evolutions"]) + (species * EVOS_PER_MON + slot) * EVOLUTION_SIZE
 
 
-## Both dex tables start at `SPECIES_BULBASAUR`.
+## Both dex tables start at `SPECIES_BULBASAUR`. Heart & Soul keeps the national number as a
+## field in gSpeciesInfo and has no separate regional dex, so its regional number is the national one.
 static func national_number(rom: RomFile, layout: Dictionary, species: int) -> int:
-	return _dex_number(rom, int(layout["species_to_national"]), species)
+	if layout.has("species_natdex_field"):
+		if species <= 0 or species >= species_count(layout):
+			return 0
+		return rom.u16le(species_info_offset(layout, species) + int(layout["species_natdex_field"]))
+	return _dex_number(rom, int(layout["species_to_national"]), species, species_count(layout))
 
 
 static func hoenn_number(rom: RomFile, layout: Dictionary, species: int) -> int:
-	return _dex_number(rom, int(layout["species_to_hoenn"]), species)
+	if layout.has("species_natdex_field"):
+		return national_number(rom, layout, species)
+	return _dex_number(rom, int(layout["species_to_hoenn"]), species, species_count(layout))
 
 
-static func _dex_number(rom: RomFile, table: int, species: int) -> int:
-	if species <= 0 or species >= SPECIES_COUNT:
+## National number to internal species. Form species share their base form's number, so on
+## Heart & Soul the lowest index wins and the rest drop out; on vanilla a number claimed
+## twice empties the answer, as before.
+static func species_by_national(rom: RomFile, layout: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	var primary_lowest: bool = bool(layout.get("species_primary_lowest", false))
+	for species: int in range(1, species_count(layout)):
+		var number: int = national_number(rom, layout, species)
+		if number < 1 or number > national_dex_count(layout):
+			continue
+		if out.has(number):
+			if not primary_lowest:
+				return {}
+			continue
+		out[number] = species
+	return out
+
+
+## Species whose data the layout checks walk: every species on vanilla, the primary
+## species on Heart & Soul (form species share a national number and empty slots hold no data).
+static func verify_species_list(rom: RomFile, layout: Dictionary) -> Array:
+	if bool(layout.get("species_primary_lowest", false)):
+		var out: Array = species_by_national(rom, layout).values()
+		out.sort()
+		return out
+	var all: Array = []
+	for species: int in range(1, species_count(layout)):
+		all.append(species)
+	return all
+
+
+## Address of a species' evolution list, or -1 when it has none (a null pointer).
+## Vanilla keeps one flat table; Heart & Soul keeps a pointer per species in gSpeciesInfo.
+static func evolution_table_offset(rom: RomFile, layout: Dictionary, species: int) -> int:
+	if layout.has("species_evolutions_field"):
+		return rom_offset(rom.u32le(
+			species_info_offset(layout, species) + int(layout["species_evolutions_field"])
+		))
+	return int(layout["evolutions"]) + species * EVOS_PER_MON * EVOLUTION_SIZE
+
+
+static func evolution_size(layout: Dictionary) -> int:
+	return int(layout.get("evolution_size", EVOLUTION_SIZE))
+
+
+## Address of a species' level-up list, or -1 when it has none (a null pointer).
+## Vanilla keeps one pointer table; Heart & Soul keeps a pointer per species in gSpeciesInfo.
+static func learnset_offset(rom: RomFile, layout: Dictionary, species: int) -> int:
+	if layout.has("species_learnset_field"):
+		return rom_offset(rom.u32le(
+			species_info_offset(layout, species) + int(layout["species_learnset_field"])
+		))
+	return rom_offset(rom.u32le(int(layout["learnsets"]) + species * POINTER_SIZE))
+
+
+static func _dex_number(rom: RomFile, table: int, species: int, count: int) -> int:
+	if species <= 0 or species >= count:
 		return 0
 	return rom.u16le(table + (species - 1) * 2)
 
 
-static func is_special_type(type: int) -> bool:
-	return type > TYPE_MYSTERY
+static func is_special_type(type: int, layout: Dictionary) -> bool:
+	return type > type_mystery(layout)
 
 
 static func read_pointer(rom: RomFile, at: int, length: int, alignment: int = 4) -> int:

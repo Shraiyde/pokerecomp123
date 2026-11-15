@@ -6,11 +6,13 @@ const TABLES: Array[String] = ["front_pics", "back_pics", "normal_palettes", "sh
 
 
 static func verify(rom: RomFile, layout: Dictionary) -> Dictionary:
+	if layout.has("species_front_pic_field"):
+		return _verify_expansion(rom, layout)
 	for key: String in ["front_coords", "back_coords"]:
-		if not rom.in_bounds(int(layout[key]), Gen3Layout.PIC_TABLE_COUNT * 4):
+		if not rom.in_bounds(int(layout[key]), Gen3Layout.pic_table_count(layout) * 4):
 			return {"ok": false, "message": "%s is outside the dump." % key}
 	for key: String in TABLES:
-		for species: int in Gen3Layout.PIC_TABLE_COUNT:
+		for species: int in Gen3Layout.pic_table_count(layout):
 			var at: int = int(layout[key]) + species * Gen3Layout.PIC_ENTRY_SIZE
 			var is_palette: bool = key.ends_with("palettes")
 			var tag: int = species + (Gen3Layout.SHINY_TAG_BASE if key == "shiny_palettes" else 0)
@@ -28,9 +30,49 @@ static func verify(rom: RomFile, layout: Dictionary) -> Dictionary:
 	return {"ok": true, "message": "Pictures verified."}
 
 
+## pokeemerald-expansion keeps each picture as a bare compressed blob behind a pointer in
+## gSpeciesInfo, with no tag header, so the check is the decompressed size alone.
+static func _verify_expansion(rom: RomFile, layout: Dictionary) -> Dictionary:
+	for species: int in Gen3Layout.verify_species_list(rom, layout):
+		for key: String in TABLES:
+			var raw: PackedByteArray = read(rom, layout, key, species)
+			var unit: int = Gen3Layout.PALETTE_BYTES if key.ends_with("palettes") else Gen3Layout.PIC_BYTES
+			if raw.is_empty():
+				return {"ok": false, "message": "%s row %d has no data." % [key, species]}
+			if key.ends_with("palettes"):
+				if raw.size() != unit:
+					return {"ok": false, "message": "%s row %d decodes to %d bytes." % [key, species, raw.size()]}
+			elif raw.size() < unit or raw.size() % unit != 0:
+				return {"ok": false, "message": "%s row %d decodes to %d bytes." % [key, species, raw.size()]}
+	return {"ok": true, "message": "Pictures verified."}
+
+
+static func _pic_field(layout: Dictionary, key: String) -> int:
+	match key:
+		"front_pics":
+			return int(layout["species_front_pic_field"])
+		"back_pics":
+			return int(layout["species_back_pic_field"])
+		"normal_palettes":
+			return int(layout["species_palette_field"])
+		"shiny_palettes":
+			return int(layout["species_shiny_palette_field"])
+	return -1
+
+
 static func read(rom: RomFile, layout: Dictionary, key: String, species: int) -> PackedByteArray:
-	var at: int = int(layout[key]) + species * Gen3Layout.PIC_ENTRY_SIZE
-	return GbaLz.decompress(rom.bytes(), Gen3Layout.rom_offset(rom.u32le(at)))
+	if layout.has("species_front_pic_field"):
+		var at: int = Gen3Layout.rom_offset(rom.u32le(
+			Gen3Layout.species_info_offset(layout, species) + _pic_field(layout, key)
+		))
+		if at < 0:
+			return PackedByteArray()
+		# Heart & Soul stores pictures and palettes raw, not LZ-compressed: one frame
+		# of tiles, or one palette, per pointer.
+		var unit: int = Gen3Layout.PALETTE_BYTES if key.ends_with("palettes") else Gen3Layout.PIC_BYTES
+		return rom.slice(at, unit)
+	var vat: int = int(layout[key]) + species * Gen3Layout.PIC_ENTRY_SIZE
+	return GbaLz.decompress(rom.bytes(), Gen3Layout.rom_offset(rom.u32le(vat)))
 
 
 static func palette(rom: RomFile, layout: Dictionary, species: int) -> Dictionary:
@@ -47,7 +89,11 @@ static func palette(rom: RomFile, layout: Dictionary, species: int) -> Dictionar
 static func coordinates(rom: RomFile, layout: Dictionary, species: int) -> Dictionary:
 	var out: Dictionary = {}
 	for kind: String in ["front", "back"]:
-		var at: int = int(layout[kind + "_coords"]) + species * 4
+		var at: int = -1
+		if layout.has("species_front_coords_field"):
+			at = Gen3Layout.species_info_offset(layout, species) + int(layout["species_" + kind + "_coords_field"])
+		else:
+			at = int(layout[kind + "_coords"]) + species * 4
 		var size: int = rom.u8(at)
 		out[kind] = {"width": (size >> 4) * 8, "height": (size & 15) * 8, "y_offset": rom.u8(at + 1)}
 	return out
@@ -57,14 +103,16 @@ static func import_pics(
 	rom: RomFile, layout: Dictionary, directory: String, species: Array, progress: Callable
 ) -> Dictionary:
 	var atlases: Dictionary = {}
+	var unown_base: int = int(layout.get("unown_form_base", Gen3Layout.UNOWN_B))
+	var deoxys_index: int = int(layout.get("deoxys_index", Gen3Layout.DEOXYS))
 	for kind: String in ["front", "back"]:
 		for entry: Dictionary in species:
 			var index: int = int(entry["index"])
 			var count: int = _add_frames(rom, layout, atlases, kind, index, int(entry["number"]) - 1, species.size())
 			entry.get_or_add("pic_frames", {})[kind] = count
-			entry.get_or_add("pic_default_frames", {})[kind] = 1 if index == Gen3Layout.DEOXYS and count == 2 else 0
+			entry.get_or_add("pic_default_frames", {})[kind] = 1 if index == deoxys_index and count == 2 else 0
 		for form: int in Gen3Layout.UNOWN_FORMS:
-			var index: int = Gen3Layout.UNOWN_SPECIES if form == 0 else Gen3Layout.UNOWN_B + form - 1
+			var index: int = Gen3Layout.UNOWN_SPECIES if form == 0 else unown_base + form - 1
 			_add_frames(rom, layout, atlases, "unown_" + kind, index, form, Gen3Layout.UNOWN_FORMS)
 		if progress.is_valid():
 			progress.call(kind + " pictures", species.size(), species.size())

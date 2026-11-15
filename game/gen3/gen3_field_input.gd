@@ -3,7 +3,7 @@ extends RefCounted # field_control_avatar.c's tile tables and step counters. Beh
 
 const ENGINES: Dictionary = {
 	RomRegistry.RUBY: &"ruby", RomRegistry.SAPPHIRE: &"ruby", RomRegistry.FIRERED: &"firered",
-	RomRegistry.LEAFGREEN: &"firered", RomRegistry.EMERALD: &"emerald",
+	RomRegistry.LEAFGREEN: &"firered", RomRegistry.EMERALD: &"emerald", RomRegistry.HEARTSOUL: &"emerald",
 }
 const COUNTER_BEHAVIOR: int = 0x80
 const MOVE_SURF: int = 57

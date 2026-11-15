@@ -6,6 +6,7 @@ const FORMAT_COUNTS: Dictionary = {
 	RomRegistry.RUBY: [198, 9], RomRegistry.SAPPHIRE: [198, 9],
 	RomRegistry.FIRERED: [213, 10], RomRegistry.LEAFGREEN: [213, 10],
 	RomRegistry.EMERALD: [227, 13],
+	RomRegistry.HEARTSOUL: [247, 13], # expansion adds 20 commands (0xE3-0xF6)
 }
 const COMMANDS: Array[String] = [
 	"nop:",
@@ -281,11 +282,47 @@ const FRLG_COMMANDS: Dictionary = {
 	0xD4: "bufferitemnameplural:122",
 }
 
+## Heart & Soul's extra commands (0xE3-0xF6), formats from the ScrCmd_ handlers in src/scrcmd.c.
+## dynmultichoice is variable-length (fixed header + argc + argc word pointers); instruction() reads the vararg.
+## These vanilla opcodes also differ in H&S (operand widths read from src/scrcmd.c):
+## createvobject takes graphicsId as a halfword (548 graphics, not 255);
+## setwildbattle takes a second species/level/item for double wild battles;
+## fadescreenswapbuffers takes a nowait byte.
+const HNS_COMMANDS: Dictionary = {
+	0xAA: "createvobject:212211",
+	0xB6: "setwildbattle:212212",
+	0xDC: "fadescreenswapbuffers:11",
+	0xE3: "dynmultichoice:2211121",
+	0xE4: "dynmultipush:42",
+	0xE5: "hidefollower:2",
+	0xE6: "getbraillestringwidth:4",
+	0xE7: "applymovementnofollower:24",
+	0xE8: "givenamedmon:2",
+	0xE9: "removenamedmon:2",
+	0xEA: "remove5mons:",
+	0xEB: "baobacheckmon:2",
+	0xEC: "givebp:2",
+	0xED: "setwildbattleshiny:212",
+	0xEE: "removegenericmon:2",
+	0xEF: "giveoddegg:2",
+	0xF0: "buffermoncategory:12",
+	0xF1: "checknuzlocke:",
+	0xF2: "checkrandomizer:",
+	0xF3: "checkpartymonlevel:2",
+	0xF4: "calculatemonstats:",
+	0xF5: "deleteparty:",
+	0xF6: "checkpartymove:2",
+}
+
 ## `TrainerBattleLoadArgs` consumes texts and optional scripts; FRLG's mode 9 stores texts, not facility arguments.
 const TRAINER_WIDTHS: Array[String] = [
 	"12244", "122444", "122444", "1224", "122444", "12244",
 	"1224444", "122444", "1224444", "12244", "12244", "12244", "12244",
 ]
+## Heart & Soul always writes the full trainerbattle parameter block (flags byte,
+## localIdA, trainerA, introA, defeatA, retA, localIdB, trainerB, introB, defeatB,
+## retB, victory, cannot-battle, rival flags); 40 bytes after the opcode.
+const HNS_TRAINER_WIDTHS: String = "11244412444441"
 const CONTINUATION_MODES: Array[int] = [1, 2, 6, 8]
 const TERMINATORS: Array[int] = [2, 3, 5, 12, 13, 0x5E, 0x5F, 0xB9]
 ## DoWarp's map load replaces the context; these scripts often have no end.
@@ -309,6 +346,7 @@ const RAM_END: int = 0x04000000
 const MOVEMENT_ACTIONS: Dictionary = {
 	RomRegistry.RUBY: 138, RomRegistry.SAPPHIRE: 138,
 	RomRegistry.FIRERED: 170, RomRegistry.LEAFGREEN: 170, RomRegistry.EMERALD: 158,
+	RomRegistry.HEARTSOUL: 182, # gMovementActionFuncs has 182 entries (max SPIN_RIGHT 0xB5)
 }
 const MOVEMENT_STEP_END: int = 0xFE
 const HELP_TEXT_LIMIT: int = 96
@@ -320,7 +358,7 @@ const BRAILLE_CELLS: int = 0x40
 const DECORATION_COUNT: int = 121
 
 
-static func instruction(rom: RomFile, at: int) -> Dictionary:
+static func instruction(rom: RomFile, at: int, layout: Dictionary = {}) -> Dictionary:
 	if not rom.in_bounds(at, 1):
 		return {}
 	var opcode: int = rom.u8(at)
@@ -331,7 +369,28 @@ static func instruction(rom: RomFile, at: int) -> Dictionary:
 	if opcode == 0x5C:
 		if not rom.in_bounds(at + 1, 1):
 			return {}
-		var mode: int = rom.u8(at + 1)
+		var mode_byte: int = rom.u8(at + 1)
+		# Heart & Soul packs the trainerbattle mode in the high nibble of the
+		# first byte (flags in the low nibble) and always writes the full
+		# 40-byte parameter block; vanilla stores a plain mode byte with a
+		# mode-dependent layout.
+		if rom.id == RomRegistry.HEARTSOUL:
+			var hns_mode: int = mode_byte >> 4
+			if hns_mode >= int(FORMAT_COUNTS[rom.id][1]):
+				return {}
+			widths = HNS_TRAINER_WIDTHS
+			var hns_end: int = at + 1
+			var hns_operands: Array[int] = []
+			for digit: String in widths:
+				var w: int = int(digit)
+				if not rom.in_bounds(hns_end, w):
+					return {}
+				hns_operands.append(_operand(rom, hns_end, w))
+				hns_end += w
+			hns_operands[0] = hns_mode
+			return {"opcode": opcode, "command": definition[0], "operands": hns_operands,
+				"next_offset": hns_end, "bytes": Array(rom.slice(at, hns_end - at))}
+		var mode: int = mode_byte
 		var limit: int = int(FORMAT_COUNTS[rom.id][1])
 		if mode >= limit:
 			return {}
@@ -344,6 +403,33 @@ static func instruction(rom: RomFile, at: int) -> Dictionary:
 			return {}
 		operands.append(_operand(rom, end, width))
 		end += width
+	# Heart & Soul dynmultichoice (0xE3) is variable-length: fixed header, an argc
+	# byte, then argc word pointers to the item texts (stack form: argc 1, one NULL).
+	if rom.id == RomRegistry.HEARTSOUL and opcode == 0xE3:
+		if not rom.in_bounds(end, 1):
+			return {}
+		var argc: int = rom.u8(end)
+		operands.append(argc)
+		end += 1
+		for item: int in argc:
+			if not rom.in_bounds(end, 4):
+				return {}
+			operands.append(_operand(rom, end, 4))
+			end += 4
+	# Heart & Soul callnative macros (facilitytrainerbattle / dofacilitytrainerbattle)
+	# append argument bytes after the function pointer; consume them so the next
+	# instruction starts at the right offset. The operand is the native function
+	# pointer, normalized: requests_effects=1 stores func + ROM_SIZE.
+	if opcode == 0x23 and layout.has("native_call_args"):
+		var func_ptr: int = int(operands[0])
+		if func_ptr >= 0x08000000 + rom.size():
+			func_ptr -= rom.size()
+		var extra: int = int((layout["native_call_args"] as Dictionary).get(func_ptr, 0))
+		for i: int in extra:
+			if not rom.in_bounds(end, 1):
+				return {}
+			operands.append(rom.u8(end))
+			end += 1
 	return {"opcode": opcode, "command": definition[0], "operands": operands,
 		"next_offset": end, "bytes": Array(rom.slice(at, end - at))}
 
@@ -360,7 +446,13 @@ static func _definition(id: StringName, opcode: int) -> PackedStringArray:
 		overrides = FRLG_COMMANDS
 	elif id in [RomRegistry.RUBY, RomRegistry.SAPPHIRE]:
 		overrides = RS_COMMANDS
-	return String(overrides.get(opcode, COMMANDS[opcode])).split(":")
+	elif id == RomRegistry.HEARTSOUL:
+		overrides = HNS_COMMANDS
+	# Do not evaluate COMMANDS[opcode] as a .get() default: it is out of range for
+	# Heart & Soul's extra opcodes (COMMANDS holds only the 227 vanilla entries).
+	if overrides.has(opcode):
+		return String(overrides[opcode]).split(":")
+	return String(COMMANDS[opcode]).split(":")
 
 
 static func _operand(rom: RomFile, at: int, width: int) -> int:
@@ -387,7 +479,7 @@ static func read(rom: RomFile, layout: Dictionary, headers: Dictionary) -> Dicti
 		var key: String = str(at)
 		if instructions.has(key):
 			continue
-		var row: Dictionary = instruction(rom, at)
+		var row: Dictionary = instruction(rom, at, layout)
 		if row.is_empty() or not _flow(rom, row, standard, trainers):
 			return {}
 		instructions[key] = row
@@ -450,16 +542,22 @@ static func _append_text(rom: RomFile, at: int, rows: Array, limit: int = MENU_T
 
 ## Instructions share no byte with each other or data; a movement label inside another list ends with it.
 static func _valid_boundaries(instructions: Dictionary, data: Dictionary) -> bool:
-	var runs: Array[Vector3i] = []
+	var runs: Array = []
 	for key: String in instructions:
-		runs.append(Vector3i(int(key), int(instructions[key]["next_offset"]), 1))
+		runs.append([int(key), int(instructions[key]["next_offset"]), 1, ""])
 	for table: String in DATA_TABLES:
 		for key: String in data[table]:
-			runs.append(Vector3i(int(key), int(key) + data_size(data[table][key]), 0))
-	runs.sort()
-	var last := Vector3i(-1, -1, 0)
-	for run: Vector3i in runs:
-		if run.x < last.y and (run.y != last.y or run.z == 1 or last.z == 1):
+			runs.append([int(key), int(key) + data_size(data[table][key]), 0, table])
+	runs.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
+	var last: Array = [-1, -1, 0, ""]
+	for run: Array in runs:
+		if run[0] < last[1] and (run[1] != last[1] or run[2] == 1 or last[2] == 1):
+			# Heart & Soul embeds movement scripts in script regions; a dead
+			# fallthrough path can decode the same bytes as instructions.
+			# Movement/data overlap is not a decode error there.
+			if str(run[3]) == "movements" or str(last[3]) == "movements":
+				last = run
+				continue
 			return false
 		last = run
 	return true
@@ -476,7 +574,7 @@ static func _data(rom: RomFile, layout: Dictionary, instructions: Dictionary) ->
 	for table: String in DATA_TABLES:
 		out[table] = {}
 	for row: Dictionary in instructions.values():
-		for pointer: Array in _data_pointers(row):
+		for pointer: Array in _data_pointers(row, rom.id):
 			var value: int = int(pointer[1])
 			if value == 0 or (value >= RAM_START and value < RAM_END):
 				continue
@@ -491,16 +589,23 @@ static func _data(rom: RomFile, layout: Dictionary, instructions: Dictionary) ->
 	return out
 
 
-static func _data_pointers(row: Dictionary) -> Array:
+static func _data_pointers(row: Dictionary, id: StringName = &"") -> Array:
 	var operands: Array = row["operands"]
 	var command: String = row["command"]
 	if command == "loadword":
 		return [["texts", operands[1]]] if int(operands[0]) == 0 else []
 	if command == "trainerbattle":
+		# Heart & Soul writes the full parameter block; the text pointers are
+		# introA, defeatA, introB, defeatB, victory, cannot-battle.
+		if id == RomRegistry.HEARTSOUL:
+			return [3, 4, 8, 9, 11, 12].map(func(i: int) -> Array: return ["texts", operands[i]])
 		var words: Array = operands.slice(3)
 		if int(operands[0]) in CONTINUATION_MODES:
 			words.pop_back()
 		return words.map(func(word: int) -> Array: return ["texts", word])
+	if command == "dynmultichoice":
+		# Operands 0-6 are the fixed header, 7 is argc, 8+ are the item text pointers.
+		return operands.slice(8).map(func(word: int) -> Array: return ["texts", word])
 	if not DATA_OPERANDS.has(command):
 		return []
 	var role: Array = DATA_OPERANDS[command]
@@ -601,15 +706,30 @@ static func _flow(rom: RomFile, row: Dictionary, standard: Array[int], trainers:
 		if not rom.in_bounds(target, 1):
 			return false
 		targets.append(target)
-	if opcode in [8, 9, 10, 11] and int(operands.back()) < standard.size():
-		targets.append(standard[int(operands.back())])
-		if opcode == 8:
+	if opcode in [8, 9, 10, 11]:
+		if int(operands.back()) < standard.size():
+			targets.append(standard[int(operands.back())])
+			if opcode == 8:
+				fallthrough = false
+		elif rom.id == RomRegistry.HEARTSOUL:
+			# Heart & Soul has gotostd/callstd with indices past its 13-entry
+			# standard table; the engine treats those as no-ops, and the bytes
+			# after them are not script code on any live path. Do not follow.
 			fallthrough = false
 	if opcode == 0x5C:
 		targets = _trainer_targets(rom, row, trainers)
 		if targets == [-1]:
 			return false
 		fallthrough = false
+	if opcode == 0x23 and rom.id == RomRegistry.HEARTSOUL:
+		# 0x0820CD59 reads a variable number of script bytes in branches, so
+		# its fallthrough offset is not modelable; its scripts never continue
+		# linearly past it (the bytes after are padding/data). Do not follow.
+		var func_ptr: int = int(operands[0])
+		if func_ptr >= 0x08000000 + rom.size():
+			func_ptr -= rom.size()
+		if func_ptr == 0x0820CD59:
+			fallthrough = false
 	row.merge({"script_offsets": targets, "fallthrough": fallthrough})
 	return true
 
@@ -632,7 +752,10 @@ static func _trainer_targets(rom: RomFile, row: Dictionary, trainers: Array) -> 
 	var helper: int = trainer_script_index(mode, _frlg(rom.id))
 	var out: Array[int] = [int(trainers[helper]), int(row["next_offset"])]
 	if mode in CONTINUATION_MODES:
-		var continuation: int = Gen3Layout.rom_offset(int(operands.back()))
+		# Heart & Soul keeps the post-battle script at operand 5 (event_script_a);
+		# vanilla stores it as the last operand.
+		var cont_operand: int = int(operands[5]) if rom.id == RomRegistry.HEARTSOUL else int(operands.back())
+		var continuation: int = Gen3Layout.rom_offset(cont_operand)
 		if not rom.in_bounds(continuation, 1):
 			return [-1]
 		out.append(continuation)

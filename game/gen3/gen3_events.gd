@@ -38,8 +38,13 @@ static func _script(rom: RomFile, at: int) -> int:
 
 
 static func _object(rom: RomFile, layout: Dictionary, at: int) -> Dictionary:
-	var kind: int = rom.u8(at + 2)
-	var out: Dictionary = {"local_id": rom.u8(at), "graphics_id": rom.u8(at + 1),
+	# Heart & Soul's ObjectEventTemplate is packed: graphicsId is a u16 at +1 and
+	# kind sits at +3 (vanilla has graphicsId u8 at +1, kind u8 at +2). The other
+	# fields share vanilla's offsets; the stride stays 24 bytes.
+	var heartsoul: bool = rom.id == RomRegistry.HEARTSOUL
+	var kind: int = rom.u8(at + 3) if heartsoul else rom.u8(at + 2)
+	var out: Dictionary = {"local_id": rom.u8(at),
+		"graphics_id": rom.u16le(at + 1) if heartsoul else rom.u8(at + 1),
 		"kind": kind, "x": rom.s16le(at + 4), "y": rom.s16le(at + 6)}
 	if kind == 255 and rom.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN]:
 		var number: int = rom.u16le(at + 12)

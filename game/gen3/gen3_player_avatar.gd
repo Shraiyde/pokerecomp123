@@ -383,7 +383,7 @@ func update_tile_state() -> void:
 
 
 func _stationary(action_id: int) -> bool:
-	var game: StringName = &"firered" if frlg else (&"emerald" if objects.events.game == RomRegistry.EMERALD else &"ruby")
+	var game: StringName = &"firered" if frlg else (&"emerald" if objects.events.game in [RomRegistry.EMERALD, RomRegistry.HEARTSOUL] else &"ruby")
 	for span: Array in STATIONARY[game]:
 		if action_id >= int(span[0]) and action_id <= int(span[1]):
 			return true

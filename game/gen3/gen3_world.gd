@@ -74,12 +74,16 @@ static func read(rom: RomFile, layout: Dictionary) -> Dictionary:
 static func _movement_types(rom: RomFile, layout: Dictionary) -> Array:
 	var at: int = int(layout["movement_types"])
 	var count: int = int(layout["movement_type_count"])
-	if not rom.in_bounds(at, count * 2):
+	# H&S keeps the two tables apart (facing at movement_types, ranged at movement_types_ranged);
+	# vanilla lays ranged first then facing at one base.
+	var ranged_at: int = int(layout.get("movement_types_ranged", at))
+	var facing_at: int = at if layout.has("movement_types_ranged") else at + count
+	if not rom.in_bounds(ranged_at, count) or not rom.in_bounds(facing_at, count):
 		return []
 	var out: Array = []
 	for type: int in count:
-		var ranged: int = rom.u8(at + type)
-		var facing: int = rom.u8(at + count + type)
+		var ranged: int = rom.u8(ranged_at + type)
+		var facing: int = rom.u8(facing_at + type)
 		if ranged > 1 or facing > 4:
 			return []
 		out.append({"ranged": ranged == 1, "facing": facing})
@@ -89,16 +93,24 @@ static func _movement_types(rom: RomFile, layout: Dictionary) -> Array:
 ## `gBerries`' 43 padded 28-byte records; Hoenn's graphics also take ID 44, its pointers read past the table.
 static func _berries(rom: RomFile, layout: Dictionary, object_graphics: Dictionary, graphics: Dictionary) -> Array:
 	var at: int = int(layout["berries"])
-	if not rom.in_bounds(at, 43 * 28):
+	var count: int = int(layout.get("berry_count", 44 if layout.has("berry_graphics") else 43))
+	if not rom.in_bounds(at, count * 28):
 		return []
 	var out: Array = []
-	for index: int in (44 if layout.has("berry_graphics") else 43):
+	var data_count: int = int(layout.get("berry_count", 43))
+	for index: int in count:
 		var row: Dictionary = {}
-		if index < 43:
+		if index < data_count:
+			var min_yield: int = rom.u8(at + index * 28 + 11)
+			if layout.get("berry_min_yield_nibble", false):
+				min_yield &= 0xF # H&S packs minYield (low nibble) with waterBonus at +11.
 			row = {"stage_minutes": rom.u8(at + index * 28 + 20) * 60,
-				"min_yield": rom.u8(at + index * 28 + 11), "max_yield": rom.u8(at + index * 28 + 10)}
+				"min_yield": min_yield, "max_yield": rom.u8(at + index * 28 + 10)}
 			if int(row["stage_minutes"]) == 0 or int(row["min_yield"]) > int(row["max_yield"]):
 				return []
+		# Heart & Soul has one shared 7 B graphics-id table, not a per-berry table.
+		if layout.has("berry_graphics_shared"):
+			row["berry_graphics"] = Array(rom.slice(int(layout["berry_graphics_shared"]), 5))
 		for table: String in ["berry_graphics", "berry_palettes"]:
 			if not layout.has(table):
 				continue
@@ -133,7 +145,14 @@ static func _object_graphics(rom: RomFile, layout: Dictionary, graphics: Diction
 		var rows: Array = []
 		for index: int in int(layout[key + "_count"]):
 			var info: int = Gen3Layout.read_pointer(rom, int(layout[key]) + index * 4, 0x24)
-			var anims: int = -1 if info < 0 else Gen3Layout.read_pointer(rom, info + 0x18, 4)
+			if info < 0:
+				# Heart & Soul leaves unused graphics slots NULL (indices 243-397);
+				# keep a placeholder so rows stay indexed by graphics id.
+				if rom.id == RomRegistry.HEARTSOUL and rom.u32le(int(layout[key]) + index * 4) == 0:
+					rows.append({})
+					continue
+				return {}
+			var anims: int = Gen3Layout.read_pointer(rom, info + 0x18, 4)
 			if anims < 0:
 				return {}
 			if not tables.has(str(anims)):
@@ -167,7 +186,11 @@ static func _shadow_templates(rom: RomFile, layout: Dictionary, out: Dictionary,
 		var at: int = Gen3Layout.read_pointer(rom, int(layout["shadow_templates"]) + index * 4, 24)
 		var oam: int = -1 if at < 0 else Gen3Layout.read_pointer(rom, at + 4, 8)
 		var images: int = -1 if at < 0 else Gen3Layout.read_pointer(rom, at + 12, 8)
-		if oam < 0 or images < 0 or rom.u32le(at) != 0xFFFFFFFF:
+		# Vanilla shadow templates carry TAG_NONE (0xFFFF) in both halves; H&S
+		# tags its shadows with palette 0x1200 and tile 0x1400+index.
+		var tag_ok: bool = rom.u32le(at) == 0xFFFFFFFF if rom.id != RomRegistry.HEARTSOUL \
+			else rom.u16le(at + 2) == 0x1200
+		if oam < 0 or images < 0 or not tag_ok:
 			return false
 		_read_images(rom, images, 0, out, graphics)
 		var size: Vector2i = Gen3ObjectSprites.OAM_SIZES[rom.u16le(oam) >> 14][rom.u16le(oam + 2) >> 14]
@@ -217,7 +240,9 @@ static func _surf_blob_template(rom: RomFile, layout: Dictionary, out: Dictionar
 	var at: int = Gen3Layout.read_pointer(rom, int(layout["shadow_templates"]) + 7 * 4, 24)
 	var images: int = 6 if rom.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN] else 3
 	var row: Dictionary = _sprite_template(rom, at, 4, images, Vector2i(32, 32), out, graphics)
-	if row.is_empty() or int(row["palette_tag"]) != 0xFFFF:
+	# H&S SurfBlob carries palette tag 0x1110, not vanilla's TAG_NONE.
+	var want_tag: int = 0x1110 if rom.id == RomRegistry.HEARTSOUL else 0xFFFF
+	if row.is_empty() or int(row["palette_tag"]) != want_tag:
 		return false
 	out["surf_blob_template"] = {"8": row}
 	return true
@@ -226,10 +251,12 @@ static func _surf_blob_template(rom: RomFile, layout: Dictionary, out: Dictionar
 ## fldeff_cut.c's `sSpriteTemplate_CutGrass`, its `SpritePalette` (tag 0x1000) declared just before it.
 static func _cut_grass_template(rom: RomFile, layout: Dictionary, out: Dictionary, graphics: Dictionary) -> bool:
 	var at: int = int(layout["cut_grass_template"])
-	var palette: int = Gen3Layout.read_pointer(rom, at - 8, Gen3Layout.PALETTE_BYTES, 2)
+	# H&S puts the palette struct at template+24 (layout key), not template-8.
+	var palette_struct: int = int(layout.get("cut_grass_palette", at - 8))
+	var palette: int = Gen3Layout.read_pointer(rom, palette_struct, Gen3Layout.PALETTE_BYTES, 2)
 	var row: Dictionary = _sprite_template(rom, at, 1, 1, Vector2i(8, 8), out, graphics)
 	if row.is_empty() or palette < 0 or int(row["palette_tag"]) != CUT_GRASS_PALETTE_TAG \
-			or rom.u16le(at - 4) != CUT_GRASS_PALETTE_TAG:
+			or rom.u16le(palette_struct + 4) != CUT_GRASS_PALETTE_TAG:
 		return false
 	graphics["object_palettes"][str(palette)] = {"bytes": Array(rom.slice(palette, Gen3Layout.PALETTE_BYTES))}
 	row["palette_offset"] = palette
@@ -244,7 +271,11 @@ static func _secret_power_templates(rom: RomFile, layout: Dictionary, out: Dicti
 	for index: int in 3:
 		var effect: int = Gen3SecretPower.FLDEFF_CAVE + index
 		var tag: int = 0x1003 if index == 0 else 0x1008
+		# H&S keeps the cave/plant palettes as separate symbols, not at +72/+80.
 		var sprite_palette: int = at + 72 + int(index > 0) * 8
+		if layout.has("secret_power_palettes"):
+			var pals: Array = layout["secret_power_palettes"]
+			sprite_palette = int(pals[0] if index == 0 else pals[1])
 		var palette: int = Gen3Layout.read_pointer(rom, sprite_palette, Gen3Layout.PALETTE_BYTES, 2)
 		var row: Dictionary = _sprite_template(rom, at + index * 24, 4 if index == 1 else 1, 5, Vector2i(16, 16), out,
 			graphics)
@@ -262,7 +293,9 @@ static func _fly_bird_template(rom: RomFile, layout: Dictionary, out: Dictionary
 	var frames: int = 5 if rom.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN] else 1
 	var row: Dictionary = _sprite_template(rom, at, frames, frames, Vector2i(32, 32) * (2 if frames == 5 else 1), out,
 		graphics)
-	if row.is_empty() or int(row["palette_tag"]) != 0xFFFF:
+	# H&S fly bird carries palette tag 0x1110, not vanilla's TAG_NONE.
+	var want_tag: int = 0x1110 if rom.id == RomRegistry.HEARTSOUL else 0xFFFF
+	if row.is_empty() or int(row["palette_tag"]) != want_tag:
 		return false
 	out["fly_bird_template"] = {str(Gen3Fly.FLDEFFOBJ_BIRD): row}
 	return true
@@ -270,12 +303,16 @@ static func _fly_bird_template(rom: RomFile, layout: Dictionary, out: Dictionary
 
 static func _heal_templates(rom: RomFile, layout: Dictionary, out: Dictionary, graphics: Dictionary) -> bool: # `sSpriteTemplate_PokeballGlow` and the monitors after it; Hoenn's draw wider than their OAM through subsprites.
 	const Art := Gen3HealMachine.Art
-	var at: int = int(layout["heal_templates"])
-	var sprite_palettes: int = int(layout["heal_palettes"])
-	var glow: int = Gen3Layout.read_pointer(rom, sprite_palettes, Gen3Layout.PALETTE_BYTES, 2)
-	var hof: int = Gen3Layout.read_pointer(rom, sprite_palettes + 8, Gen3Layout.PALETTE_BYTES, 2)
-	if glow < 0 or hof < 0 or rom.u16le(sprite_palettes + 4) != Gen3HealMachine.GLOW_PALETTE_TAG \
-			or rom.u16le(sprite_palettes + 12) != Gen3HealMachine.HOF_PALETTE_TAG:
+	# Heart & Soul lists template/palette addresses (non-consecutive, palettes
+	# reversed, no HofMonitorSmall); vanilla uses a base + stride.
+	var templates: Array = layout["heal_templates"] if layout["heal_templates"] is Array else []
+	var palettes: Array = layout["heal_palettes"] if layout["heal_palettes"] is Array else []
+	var glow_struct: int = int(palettes[0]) if not palettes.is_empty() else int(layout["heal_palettes"])
+	var hof_struct: int = int(palettes[1]) if palettes.size() > 1 else int(layout["heal_palettes"]) + 8
+	var glow: int = Gen3Layout.read_pointer(rom, glow_struct, Gen3Layout.PALETTE_BYTES, 2)
+	var hof: int = Gen3Layout.read_pointer(rom, hof_struct, Gen3Layout.PALETTE_BYTES, 2)
+	if glow < 0 or hof < 0 or rom.u16le(glow_struct + 4) != Gen3HealMachine.GLOW_PALETTE_TAG \
+			or rom.u16le(hof_struct + 4) != Gen3HealMachine.HOF_PALETTE_TAG:
 		return false
 	var specs: Array = [[Art.GLOW, 2, 1, Vector2i(8, 8), Vector2i(8, 8), Gen3HealMachine.GLOW_PALETTE_TAG, glow]]
 	if rom.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN]:
@@ -285,11 +322,14 @@ static func _heal_templates(rom: RomFile, layout: Dictionary, out: Dictionary, g
 		specs.append([Art.MONITOR, 2, 2, Vector2i(16, 16), Vector2i(24, 16), Gen3HealMachine.GENERAL_PALETTE_TAG,
 			int(layout["general_palette"])])
 		specs.append([Art.HOF_BIG, 1, 1, Vector2i(16, 16), Vector2i(64, 16), Gen3HealMachine.HOF_PALETTE_TAG, hof])
-		specs.append([Art.HOF_SMALL, 1, 1, Vector2i(32, 16), Vector2i(32, 16), Gen3HealMachine.HOF_PALETTE_TAG, hof])
+		# H&S has no HofMonitorSmall template; skip it rather than inventing one.
+		if templates.is_empty():
+			specs.append([Art.HOF_SMALL, 1, 1, Vector2i(32, 16), Vector2i(32, 16), Gen3HealMachine.HOF_PALETTE_TAG, hof])
 	var rows: Dictionary = {}
 	for index: int in specs.size():
 		var spec: Array = specs[index]
-		var row: Dictionary = _sprite_template(rom, at + index * 24, int(spec[1]), int(spec[2]), spec[3], out, graphics)
+		var template_at: int = int(templates[index]) if not templates.is_empty() else int(layout["heal_templates"]) + index * 24
+		var row: Dictionary = _sprite_template(rom, template_at, int(spec[1]), int(spec[2]), spec[3], out, graphics)
 		if row.is_empty() or int(row["palette_tag"]) != int(spec[5]) \
 				or not rom.in_bounds(int(spec[6]), Gen3Layout.PALETTE_BYTES):
 			return false
@@ -338,19 +378,23 @@ static func _door_graphics(rom: RomFile, layout: Dictionary, out: Dictionary, gr
 	var frlg: bool = rom.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN]
 	var ruby: bool = rom.id in [RomRegistry.RUBY, RomRegistry.SAPPHIRE]
 	var at: int = int(layout["door_graphics"])
+	# H&S rows are 20 B: tileset ptr +4, tiles +12, palettes +16 (vanilla: 12 B, tiles +4, palettes +8).
+	var row_bytes: int = int(layout.get("door_row_bytes", Gen3FieldDoor.ROW_BYTES))
+	var tiles_off: int = 12 if row_bytes == 20 else 4
+	var palettes_off: int = 16 if row_bytes == 20 else 8
 	graphics["doors"] = {}
 	out["doors"] = []
-	while rom.in_bounds(at, Gen3FieldDoor.ROW_BYTES) and rom.u32le(at + 4) != 0:
+	while rom.in_bounds(at, row_bytes) and rom.u32le(at + tiles_off) != 0:
 		var big: bool = not ruby and rom.u8(at + 3) == (1 if frlg else 2)
 		var bytes: int = Gen3FieldDoor.FRAME_COUNT * (2 if big else 1) * Gen3FieldDoor.FRAME_TILES[int(frlg)] * GbaTiles.TILE_BYTES
-		var tiles: int = Gen3Layout.read_pointer(rom, at + 4, bytes, 1)
-		var palettes: int = Gen3Layout.read_pointer(rom, at + 8, Gen3FieldDoor.PALETTE_BYTES, 1)
+		var tiles: int = Gen3Layout.read_pointer(rom, at + tiles_off, bytes, 1)
+		var palettes: int = Gen3Layout.read_pointer(rom, at + palettes_off, Gen3FieldDoor.PALETTE_BYTES, 1)
 		if tiles < 0 or palettes < 0:
 			return false
 		graphics["doors"][str(tiles)] = {"bytes": Array(rom.slice(tiles, bytes))}
 		out["doors"].append({"metatile": rom.u16le(at), "sound": rom.u8(at + 2), "big": big, "tiles": tiles,
 			"palettes": Array(rom.slice(palettes, Gen3FieldDoor.PALETTE_BYTES))})
-		at += Gen3FieldDoor.ROW_BYTES
+		at += row_bytes
 	return not out["doors"].is_empty()
 
 
@@ -360,7 +404,9 @@ static func _sparkle_template(rom: RomFile, layout: Dictionary, out: Dictionary,
 		return true
 	var at: int = Gen3Layout.read_pointer(rom, int(layout["shadow_templates"]) + 22 * 4, 24)
 	var row: Dictionary = _sprite_template(rom, at, 1, 6, Vector2i(16, 16), out, graphics)
-	if row.is_empty() or int(row["palette_tag"]) != 0xFFFF:
+	# H&S sparkle carries palette tag 0x1104, not vanilla's TAG_NONE.
+	var want_tag: int = 0x1104 if rom.id == RomRegistry.HEARTSOUL else 0xFFFF
+	if row.is_empty() or int(row["palette_tag"]) != want_tag:
 		return false
 	row["palette"] = 5
 	out["map_effect_templates"]["23"] = row
@@ -386,16 +432,32 @@ static func _field_move_streaks(rom: RomFile, layout: Dictionary, out: Dictionar
 	graphics["field_move_streaks"] = {}
 	out["field_move_streaks"] = []
 	for outdoors: int in 2:
-		var at: int = int(layout["field_move_streaks" if outdoors else "field_move_streaks_indoors"])
+		var key: String = "field_move_streaks" if outdoors else "field_move_streaks_indoors"
 		var size: int = Gen3FieldMoveMon.TILE_BYTES[outdoors]
 		var length: int = size + Gen3Layout.PALETTE_BYTES + Gen3FieldMoveMon.TILEMAP_WORDS * 2
-		if not rom.in_bounds(at, length) or rom.slice(at, GbaTiles.TILE_BYTES).count(0) != GbaTiles.TILE_BYTES:
+		var blob: PackedByteArray = PackedByteArray()
+		var at: int = 0
+		if layout[key] is Dictionary:
+			# Heart & Soul scatters the three components; assemble the vanilla blob.
+			var parts: Dictionary = layout[key]
+			at = int(parts["gfx"])
+			if not rom.in_bounds(at, size) or not rom.in_bounds(int(parts["pal"]), Gen3Layout.PALETTE_BYTES) \
+					or not rom.in_bounds(int(parts["tilemap"]), Gen3FieldMoveMon.TILEMAP_WORDS * 2):
+				return false
+			blob = rom.slice(at, size) + rom.slice(int(parts["pal"]), Gen3Layout.PALETTE_BYTES) \
+				+ rom.slice(int(parts["tilemap"]), Gen3FieldMoveMon.TILEMAP_WORDS * 2)
+		else:
+			at = int(layout[key])
+			if not rom.in_bounds(at, length):
+				return false
+			blob = rom.slice(at, length)
+		if blob.slice(0, GbaTiles.TILE_BYTES).count(0) != GbaTiles.TILE_BYTES:
 			return false
 		for word: int in Gen3FieldMoveMon.TILEMAP_WORDS:
-			var entry: int = rom.u16le(at + size + Gen3Layout.PALETTE_BYTES + word * 2)
+			var entry: int = blob.decode_u16(size + Gen3Layout.PALETTE_BYTES + word * 2)
 			if entry & 0x3FF >= size / GbaTiles.TILE_BYTES or entry >> 12 != 0:
 				return false
-		graphics["field_move_streaks"][str(at)] = {"bytes": Array(rom.slice(at, length))}
+		graphics["field_move_streaks"][str(at)] = {"bytes": Array(blob)}
 		out["field_move_streaks"].append(at)
 	return true
 
@@ -484,44 +546,63 @@ static func _weather(rom: RomFile, layout: Dictionary, graphics: Dictionary) -> 
 		graphics["weather"][str(at)] = {"bytes": Array(bytes)}
 		drought.append(at)
 	var sheets: Dictionary = {}
-	var start: int = int(layout.get("weather_sheets", -1))
-	for sheet: Array in Gen3WeatherSprites.SHEETS:
-		if not rom.in_bounds(start, int(sheet[1])):
-			return {}
-		graphics["weather"][str(start)] = {"bytes": Array(rom.slice(start, int(sheet[1])))}
-		sheets[sheet[0]] = start
-		start += int(sheet[1])
+	if layout.has("weather_sheet_offsets"):
+		# Heart & Soul scatters/reverses the sheets; each sheet by name.
+		var offsets: Dictionary = layout["weather_sheet_offsets"]
+		for sheet: Array in Gen3WeatherSprites.SHEETS:
+			var start: int = int(offsets.get(sheet[0], -1))
+			if start < 0 or not rom.in_bounds(start, int(sheet[1])):
+				return {}
+			graphics["weather"][str(start)] = {"bytes": Array(rom.slice(start, int(sheet[1])))}
+			sheets[sheet[0]] = start
+	else:
+		var start: int = int(layout.get("weather_sheets", -1))
+		for sheet: Array in Gen3WeatherSprites.SHEETS:
+			if not rom.in_bounds(start, int(sheet[1])):
+				return {}
+			graphics["weather"][str(start)] = {"bytes": Array(rom.slice(start, int(sheet[1])))}
+			sheets[sheet[0]] = start
+			start += int(sheet[1])
 	return {"palette": palette, "drought": drought, "summed": layout.has("drought_colors"), "sheets": sheets}
 
 
 static func _graphics_info(rom: RomFile, info: int, anims: Array, out: Dictionary, graphics: Dictionary) -> Dictionary:
 	var oam: int = Gen3Layout.read_pointer(rom, info + 0x10, 8)
-	var images: int = Gen3Layout.read_pointer(rom, info + 0x1C, 8)
+	# Heart & Soul has one object with a NULL images pointer: no sprite frames.
+	var images: int = 0 if rom.u32le(info + 0x1C) == 0 else Gen3Layout.read_pointer(rom, info + 0x1C, 8)
 	var subsprites: int = 0 if rom.u32le(info + 0x14) == 0 else Gen3Layout.read_pointer(rom, info + 0x14, 48)
 	if oam < 0 or images < 0 or subsprites < 0:
 		return {}
-	var affine: int = Gen3Layout.read_pointer(rom, info + 0x20, 4)
+	var affine: int = 0 if rom.u32le(info + 0x20) == 0 else Gen3Layout.read_pointer(rom, info + 0x20, 4)
 	if affine < 0:
 		return {}
-	if not out["affine_anims"].has(str(affine)):
+	if affine == 0:
+		# Heart & Soul leaves affineAnims NULL for most objects: no affine anims.
+		if not out["affine_anims"].has("0"):
+			out["affine_anims"]["0"] = []
+	elif not out["affine_anims"].has(str(affine)):
 		out["affine_anims"][str(affine)] = _affine_table(rom, affine)
-	if out["affine_anims"][str(affine)].is_empty():
+	if affine != 0 and out["affine_anims"][str(affine)].is_empty():
 		return {}
 	var bits: int = rom.u8(info + 0x0C)
 	var row: Dictionary = {
 		"palette_tag": rom.u16le(info + 2), "reflection_palette_tag": rom.u16le(info + 4),
 		"size": rom.u16le(info + 6), "width": rom.s16le(info + 8), "height": rom.s16le(info + 10),
 		"palette_slot": bits & 0xF, "shadow_size": (bits >> 4) & 3, "inanimate": bool(bits & 0x40),
-		"disable_reflection_palette_load": bool(bits & 0x80), "tracks": rom.u8(info + 0x0D),
+		# Heart & Soul bit 0x80 is `compressed`, not vanilla's disableReflectionPaletteLoad.
+		"disable_reflection_palette_load": false if rom.id == RomRegistry.HEARTSOUL else bool(bits & 0x80),
+		"compressed": bool(bits & 0x80) if rom.id == RomRegistry.HEARTSOUL else false,
+		"tracks": rom.u8(info + 0x0D),
 		"oam": {"affine_mode": (rom.u16le(oam) >> 8) & 3, "obj_mode": (rom.u16le(oam) >> 10) & 3,
 			"shape": rom.u16le(oam) >> 14, "size": rom.u16le(oam + 2) >> 14,
 			"priority": (rom.u16le(oam + 4) >> 10) & 3},
 		"images": images, "subsprite_tables": subsprites, "affine_anims": affine,
 	}
-	_read_images(rom, images, _last_image(anims), out, graphics)
+	if images != 0:
+		_read_images(rom, images, _last_image(anims), out, graphics)
 	if subsprites != 0 and not out["subsprite_tables"].has(str(subsprites)):
 		out["subsprite_tables"][str(subsprites)] = _subsprite_tables(rom, subsprites)
-	if out["sprite_images"][str(images)].is_empty() \
+	if (images != 0 and out["sprite_images"][str(images)].is_empty()) \
 			or (subsprites != 0 and out["subsprite_tables"][str(subsprites)].is_empty()):
 		return {}
 	return row
@@ -623,6 +704,8 @@ static func _palette_tags_found(palettes: Dictionary, object_graphics: Dictionar
 	var sets: Dictionary = {Gen3ObjectSprites.PALSLOT_PLAYER: "player_reflections",
 		Gen3ObjectSprites.PALSLOT_NPC_SPECIAL: "special_reflections"}
 	for row: Dictionary in object_graphics.get("object_graphics", []) + object_graphics.get("mauville_graphics", []):
+		if row.is_empty():
+			continue # Heart & Soul NULL graphics slot (placeholder).
 		var slot: int = int(row["palette_slot"])
 		var reflection_tag: int = int(row.get("reflection_palette_tag", Gen3ObjectSprites.PALETTE_TAG_NONE))
 		if reflection_tag != Gen3ObjectSprites.PALETTE_TAG_NONE and not row.get("disable_reflection_palette_load", false):
@@ -735,6 +818,10 @@ static func _headers(rom: RomFile, layout: Dictionary) -> Dictionary:
 		if pointers < 0:
 			return {}
 		for number: int in int(sizes[group]):
+			# A NULL header pointer means the map is absent from this build (Heart &
+			# Soul leaves every Hoenn/FRLG header NULL); skip it rather than failing.
+			if rom.u32le(pointers + number * 4) == 0:
+				continue
 			var at: int = Gen3Layout.read_pointer(rom, pointers + number * 4, HEADER_SIZE)
 			var row: Dictionary = _header(rom, layout, at)
 			if row.is_empty():
@@ -838,16 +925,18 @@ static func _connections(rom: RomFile, layout: Dictionary, pointer_at: int) -> A
 static func _encounters(rom: RomFile, layout: Dictionary, headers: Dictionary) -> Dictionary:
 	var at: int = int(layout["wild_headers"])
 	var count: int = int(layout["wild_header_count"])
-	if not rom.in_bounds(at, (count + 1) * WILD_HEADER_SIZE):
+	# Heart & Soul headers are 84 bytes (4 time-of-day slots of 5 pointers); vanilla's are 20.
+	var stride: int = int(layout.get("wild_header_size", WILD_HEADER_SIZE))
+	if not rom.in_bounds(at, (count + 1) * stride):
 		return {}
-	var end: int = at + count * WILD_HEADER_SIZE
+	var end: int = at + count * stride
 	if rom.u8(end) != 0xFF or rom.u8(end + 1) != 0xFF:
 		return {}
 	var out: Dictionary = {"land": {}, "water": {}, "rock_smash": {},
 		"old_rod": {}, "good_rod": {}, "super_rod": {}}
 	var seen: Dictionary = {}
 	for index: int in count:
-		var row: int = at + index * WILD_HEADER_SIZE
+		var row: int = at + index * stride
 		var key: String = "%d:%d" % [rom.u8(row), rom.u8(row + 1)]
 		if not headers.has(key):
 			return {}
@@ -861,8 +950,11 @@ static func _encounters(rom: RomFile, layout: Dictionary, headers: Dictionary) -
 ## `GetCurrentMapWildMonHeaderId` adds Altering Cave's set to its first row; each keeps its ordinal, absent methods too.
 static func _encounter_methods(rom: RomFile, layout: Dictionary, at: int, key: String, variant: int, out: Dictionary) -> bool:
 	var records: Dictionary = {}
+	# Heart & Soul reads the TIME_DAY slot: method pointers start at header+24 (the
+	# hidden-mons pointer at +40 has no vanilla equivalent and is ignored).
+	var method_base: int = int(layout.get("wild_method_base", 4))
 	for method: int in WILD_METHODS.size():
-		var pointer_at: int = at + 4 + method * 4
+		var pointer_at: int = at + method_base + method * 4
 		if rom.u32le(pointer_at) == 0:
 			continue
 		var record: Dictionary = _wild_info(rom, layout, pointer_at, method)
@@ -901,8 +993,14 @@ static func _wild_info(rom: RomFile, layout: Dictionary, pointer_at: int, method
 		var row: int = mons + slot * 4
 		var low: int = rom.u8(row)
 		var high: int = rom.u8(row + 1)
-		var species: int = Gen3Layout.national_number(rom, layout, rom.u16le(row + 2))
-		if low < 1 or low > 100 or high < 1 or high > 100 or species < 1 or species > Gen3Layout.NATIONAL_DEX_COUNT:
+		var raw_species: int = rom.u16le(row + 2)
+		var species: int = Gen3Layout.national_number(rom, layout, raw_species)
+		# Heart & Soul emits placeholder tables full of SPECIES_NONE for methods a
+		# map does not use (e.g. water on a landlocked map); vanilla never does.
+		var species_ok: bool = species >= 1 and species <= Gen3Layout.national_dex_count(layout)
+		if raw_species == 0 and rom.id == RomRegistry.HEARTSOUL:
+			species_ok = true
+		if low < 1 or low > 100 or high < 1 or high > 100 or not species_ok:
 			return {}
 		slots.append({"slot": slot, "min_level": low, "max_level": high,
 			"species": species, "chance": int(chances[slot])})
@@ -958,18 +1056,32 @@ static func _tileset(rom: RomFile, at: int) -> Dictionary:
 	var tiles: int = Gen3Layout.read_pointer(rom, at + 4, 4)
 	var metatiles: int = Gen3Layout.read_pointer(rom, at + 12, 16, 2)
 	var attributes: int = Gen3Layout.read_pointer(rom, at + (20 if frlg else 16), attribute_size, attribute_size)
-	var count: int = (attributes - metatiles) / 16
-	if tiles < 0 or metatiles < 0 or attributes < 0 or count < 1 or count > capacity \
-		or (attributes - metatiles) % 16 != 0 \
+	# Heart & Soul lays the attribute array immediately BEFORE the metatiles, so the
+	# count is (metatiles - attributes) / attribute_size; vanilla lays metatiles
+	# first, so the count is (attributes - metatiles) / 16.
+	var heartsoul: bool = rom.id == RomRegistry.HEARTSOUL
+	var count: int = (metatiles - attributes) / attribute_size if heartsoul \
+		else (attributes - metatiles) / 16
+	# Heart & Soul mixes tileset splits (its FRLG layouts pair a tiny primary with a
+	# secondary of up to 510 metatiles), so validate the count against the total
+	# 1024-id space rather than the split; the split still bounds the tails below.
+	var max_count: int = 1024 if heartsoul else capacity
+	var gap_ok: bool = (metatiles - attributes) % attribute_size == 0 if heartsoul \
+		else (attributes - metatiles) % 16 == 0
+	if tiles < 0 or metatiles < 0 or attributes < 0 or count < 1 or count > max_count \
+		or not gap_ok \
 		or not rom.in_bounds(attributes, count * attribute_size):
 		return {}
-	var tile_bytes: PackedByteArray = _tile_bytes(rom, tiles, capacity, rom.u8(at) == 1)
+	var tile_bytes: PackedByteArray = _tile_bytes(rom, tiles, tile_capacity(rom.id, capacity), rom.u8(at) == 1)
 	if tile_bytes.is_empty():
 		return {}
 	var palette: Dictionary = _tileset_palette(rom, at, frlg, secondary)
 	var callback: int = int(palette.get("callback_offset", 0))
 	var animation: Dictionary = Gen3TilesetAnims.read(rom, callback) if callback != 0 else {}
-	if palette.is_empty() or (callback != 0 and animation.is_empty()):
+	# Heart & Soul's InitTilesetAnim_* callbacks are not in the animation engine
+	# table yet, so an unrecognized callback means no animation data, not a corrupt
+	# tileset; the tiles still decode and the map renders statically.
+	if palette.is_empty() or (callback != 0 and animation.is_empty() and rom.id != RomRegistry.HEARTSOUL):
 		return {}
 	var out: Dictionary = {"compressed": rom.u8(at) == 1, "secondary": secondary == 1,
 		"tile_offset": split if secondary == 1 else 0, "tile_count": tile_bytes.size() / 32,
@@ -989,21 +1101,29 @@ static func _tileset(rom: RomFile, at: int) -> Dictionary:
 ## The ROM after a metatile or attribute array, to the bank's id space: `DrawMetatileAt` and `GetMetatileAttributesById`
 ## read past it for an id the tileset lacks, which a strip from a map on another secondary tileset brings in.
 static func _tail(rom: RomFile, at: int, length: int) -> PackedByteArray:
-	return rom.slice(at, clampi(rom.size() - at, 0, length))
+	return rom.slice(at, clampi(rom.size() - at, 0, maxi(length, 0)))
 
 
 static func _tile_bytes(rom: RomFile, at: int, capacity: int, compressed: bool) -> PackedByteArray:
-	if compressed and (rom.u32le(at) >> 8) % GbaTiles.TILE_BYTES != 0:
-		return PackedByteArray()
-	var bytes: PackedByteArray = GbaLz.decompress(rom.bytes(), at) if compressed \
-		else rom.slice(at, capacity * GbaTiles.TILE_BYTES)
+	var bytes: PackedByteArray
+	if not compressed:
+		bytes = rom.slice(at, capacity * GbaTiles.TILE_BYTES)
+	elif rom.id == RomRegistry.HEARTSOUL and rom.u8(at) != 0x10:
+		# Heart & Soul tileset tiles are smol (fastSmol mode 1, or a tANS mode),
+		# not BIOS LZ77; GbaSmol validates the mode itself.
+		bytes = GbaSmol.decompress(rom.bytes(), at, capacity * GbaTiles.TILE_BYTES)
+	else:
+		if (rom.u32le(at) >> 8) % GbaTiles.TILE_BYTES != 0:
+			return PackedByteArray()
+		bytes = GbaLz.decompress(rom.bytes(), at)
 	if bytes.size() < GbaTiles.TILE_BYTES or bytes.size() > capacity * GbaTiles.TILE_BYTES:
 		return PackedByteArray()
 	return bytes
 
 
 static func _tileset_palette(rom: RomFile, at: int, frlg: bool, secondary: int) -> Dictionary:
-	var primary_pals: int = 7 if frlg else 6
+	# Heart & Soul primary tilesets carry 7 palettes (NUM_PALS_IN_PRIMARY), like FRLG.
+	var primary_pals: int = 7 if frlg or rom.id == RomRegistry.HEARTSOUL else 6
 	var total_pals: int = 12 if rom.id in [RomRegistry.RUBY, RomRegistry.SAPPHIRE] else 13
 	var first_pal: int = primary_pals if secondary == 1 else 0
 	var pal_count: int = total_pals - primary_pals if secondary == 1 else primary_pals
@@ -1018,7 +1138,13 @@ static func _tileset_palette(rom: RomFile, at: int, frlg: bool, secondary: int) 
 
 
 static func primary_tile_count(id: StringName) -> int:
-	return 640 if id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN] else 512
+	return 640 if id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN, RomRegistry.HEARTSOUL] else 512
+
+
+## Heart & Soul secondary tilesets can hold more tile data than the split's VRAM
+## window (up to 496 tiles); cap tile data at the total 1024-tile space instead.
+static func tile_capacity(id: StringName, capacity: int) -> int:
+	return 1024 if id == RomRegistry.HEARTSOUL else capacity
 
 
 ## One metatile id's tiles and attributes; past the rows it reads the ROM after the arrays, and past that nothing.
