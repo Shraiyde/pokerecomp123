@@ -480,16 +480,28 @@ func remove_outside_view() -> void:
 
 
 ## `GetObjectEventGraphicsInfo`: var ids read their var, Emerald's bard the Mauville man, past the table the fallback.
+## Heart & Soul keeps full 16-bit graphics ids (vanilla masks to a byte), its var ids start at
+## NUM_OBJ_EVENT_GFX + 1 (549, not 240), and `OBJ_EVENT_MON` ids (bit 0x4000) are a species'
+## overworld sprite; past the table it falls back to the Ninja Boy, not the player.
 func graphics_info(graphics_id: int) -> Dictionary:
-	var id: int = graphics_id & 0xFF
-	if id >= OBJ_EVENT_GFX_VARS:
-		id = events.var_get(VAR_OBJ_GFX_ID_0 + id - OBJ_EVENT_GFX_VARS) & 0xFF
+	var heartsoul: bool = camera.data.id == RomRegistry.HEARTSOUL
+	var id: int = graphics_id if heartsoul else graphics_id & 0xFF
+	var gfx_vars: int = 549 if heartsoul else OBJ_EVENT_GFX_VARS
+	if id >= gfx_vars and id <= gfx_vars + 0xF:
+		id = events.var_get(VAR_OBJ_GFX_ID_0 + id - gfx_vars)
+		if not heartsoul:
+			id &= 0xFF
 	var key: int = -1 - mauville_man if camera.data.id == RomRegistry.EMERALD and id == OBJ_EVENT_GFX_BARD else id
 	if not _graphics.has(key):
-		var info: Dictionary = camera.data.world_object_graphics(mauville_man, true) if key < 0 \
-			else camera.data.world_object_graphics(id)
+		var info: Dictionary = {}
+		if heartsoul and id & 0x4000:
+			info = camera.data.world_species_overworld_graphics(id & 0x8FFF)
+		if info.is_empty():
+			info = camera.data.world_object_graphics(mauville_man, true) if key < 0 \
+				else camera.data.world_object_graphics(id)
+		var fallback: int = 5 if heartsoul else GRAPHICS_FALLBACK.get(camera.data.id, 0)
 		_graphics[key] = info if not info.is_empty() \
-			else camera.data.world_object_graphics(GRAPHICS_FALLBACK.get(camera.data.id, 0))
+			else camera.data.world_object_graphics(fallback)
 	return _graphics[key]
 
 
@@ -562,8 +574,11 @@ func spawn(template: Dictionary, number: int, group: int) -> int:
 	object.trainer_type = int(template["trainer_type"]) & 0xFF
 	object.trainer_range = int(template["trainer_sight_or_berry_tree_id"]) & 0xFF
 	set_direction(object, _facing[object.movement_type])
-	if object.graphics_id >= OBJ_EVENT_GFX_VARS:
-		object.graphics_id = events.var_get(VAR_OBJ_GFX_ID_0 + object.graphics_id - OBJ_EVENT_GFX_VARS) & 0xFF
+	var gfx_vars: int = 549 if camera.data.id == RomRegistry.HEARTSOUL else OBJ_EVENT_GFX_VARS
+	if object.graphics_id >= gfx_vars and object.graphics_id <= gfx_vars + 0xF:
+		object.graphics_id = events.var_get(VAR_OBJ_GFX_ID_0 + object.graphics_id - gfx_vars)
+		if camera.data.id != RomRegistry.HEARTSOUL:
+			object.graphics_id &= 0xFF
 	if _ranged[object.movement_type]:
 		object.movement_range = object.movement_range.max(Vector2i.ONE)
 	_take_graphics(object, object.graphics_id)

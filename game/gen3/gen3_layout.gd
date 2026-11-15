@@ -649,6 +649,7 @@ const HEARTSOUL: Dictionary = {
 	"species_natdex_field": 60,
 	"species_learnset_field": 152,
 	"species_evolutions_field": 164,
+	"species_overworld_field": 176,  # overworldData: ObjectEventGraphicsInfo (36 B) in SpeciesInfo
 	"species_dex_category_field": 31,
 	"species_dex_category_size": 13,
 	"species_dex_height_field": 62,

@@ -46,6 +46,8 @@ static func read(rom: RomFile, layout: Dictionary) -> Dictionary:
 	var scripts: Dictionary = Gen3Script.read(rom, layout, headers)
 	var movement_types: Array = _movement_types(rom, layout)
 	var object_graphics: Dictionary = _object_graphics(rom, layout, graphics)
+	if not _species_overworld_graphics(rom, layout, object_graphics, graphics):
+		return {}
 	var berries: Array = [] if object_graphics.is_empty() else _berries(rom, layout, object_graphics, graphics)
 	var palettes: Dictionary = _object_palettes(rom, layout, object_graphics, graphics)
 	if scripts.is_empty() or movement_types.is_empty() or berries.is_empty() or palettes.is_empty():
@@ -166,6 +168,36 @@ static func _object_graphics(rom: RomFile, layout: Dictionary, graphics: Diction
 	var steps: Dictionary = {}
 	out["step_anims"] = steps
 	return out if _step_anims(rom, layout, tables, steps) else {}
+
+
+## Per-species overworld sprite (`SpeciesInfo.overworldData`, an inline
+## ObjectEventGraphicsInfo at species_overworld_field). Only layouts that
+## define the field have it; rows stay indexed by species id, with {} for
+## a species whose data does not decode.
+static func _species_overworld_graphics(rom: RomFile, layout: Dictionary, object_graphics: Dictionary, graphics: Dictionary) -> bool:
+	if not layout.has("species_overworld_field"):
+		return true
+	var tables: Dictionary = object_graphics["sprite_anims"]
+	var rows: Array = []
+	for species: int in int(layout["species_count"]):
+		var info: int = int(layout["species_info"]) + species * int(layout["species_info_size"]) + int(layout["species_overworld_field"])
+		if not rom.in_bounds(info, 0x24):
+			rows.append({})
+			continue
+		var anims: int = Gen3Layout.read_pointer(rom, info + 0x18, 4)
+		if anims < 0:
+			rows.append({})
+			continue
+		if not tables.has(str(anims)):
+			tables[str(anims)] = _anim_table(rom, anims)
+		var row: Dictionary = _graphics_info(rom, info, tables[str(anims)], object_graphics, graphics)
+		if tables[str(anims)].is_empty() or row.is_empty():
+			rows.append({})
+			continue
+		row["anims"] = anims
+		rows.append(row)
+	object_graphics["species_overworld_graphics"] = rows
+	return true
 
 
 ## The first four `gFieldEffectObjectTemplatePointers` entries; TAG_NONE leaves palette slot zero.
