@@ -519,6 +519,22 @@ func _take_graphics(object: ObjectEvent, graphics_id: int) -> void:
 	object.anim.images = info.get("images", [])
 	object.inanimate = bool(info.get("inanimate", false))
 	object.palette_num = int(info.get("palette_slot", 0))
+	# MON sprites (Pokemon overworld) use the dynamic tag 4388, which is not
+	# in the static object palette table. Load the species' overworld
+	# palette into a dynamic slot (12-15) keyed by species, so same-species
+	# NPCs share a slot and human NPCs keep slot 2. Falls back to the
+	# static slot when the palette is missing or slots are exhausted.
+	if camera.data.id == RomRegistry.HEARTSOUL and (graphics_id & 0x4000) != 0:
+		var pal: PackedByteArray = PackedByteArray(info.get("overworld_palette", []))
+		if pal.size() == 32:
+			var tag: int = 0x10000 + (graphics_id & 0x8FFF)
+			var slot: int = sprites.palette.sprite_index(tag)
+			if slot == 0xFF:
+				slot = sprites.palette.alloc_sprite(tag)
+				if slot != 0xFF:
+					sprites.palette.load(pal, Gen3Palette.OBJ_OFFSET + slot * 16)
+			if slot != 0xFF:
+				object.palette_num = slot & 0xF
 	# H&S graphics ids are 16-bit (Fat Man 416, MON_BASE+species up to 16588);
 	# truncating to a byte here made every NPC resolve to the wrong row
 	# (416 -> 160, 425 -> 169: 16x16 sprites, "just the tops of their heads").

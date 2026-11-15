@@ -195,6 +195,13 @@ static func _species_overworld_graphics(rom: RomFile, layout: Dictionary, object
 			rows.append({})
 			continue
 		row["anims"] = anims
+		# The species' overworld palette: MON sprites use the dynamic tag
+		# 4388, which is not in the static object palette table, so the
+		# palette comes from SpeciesInfo+248 (overworldData+72) — 32 raw
+		# bytes. Stored inline so the runtime can load it into a dynamic
+		# palette slot (12-15) instead of sharing slot 2 with human NPCs.
+		var pal_ptr: int = Gen3Layout.read_pointer(rom, info + 72, 32)
+		row["overworld_palette"] = Array(rom.slice(pal_ptr, 32)) if pal_ptr >= 0 else []
 		rows.append(row)
 	object_graphics["species_overworld_graphics"] = rows
 	return true
