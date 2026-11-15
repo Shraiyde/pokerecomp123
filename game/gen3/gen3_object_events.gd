@@ -519,7 +519,10 @@ func _take_graphics(object: ObjectEvent, graphics_id: int) -> void:
 	object.anim.images = info.get("images", [])
 	object.inanimate = bool(info.get("inanimate", false))
 	object.palette_num = int(info.get("palette_slot", 0))
-	object.graphics_id = graphics_id & 0xFF
+	# H&S graphics ids are 16-bit (Fat Man 416, MON_BASE+species up to 16588);
+	# truncating to a byte here made every NPC resolve to the wrong row
+	# (416 -> 160, 425 -> 169: 16x16 sprites, "just the tops of their heads").
+	object.graphics_id = graphics_id if camera.data.id == RomRegistry.HEARTSOUL else graphics_id & 0xFF
 
 
 ## `TrySetupObjectEventSprite` after `InitObjectEventStateFromTemplate`.

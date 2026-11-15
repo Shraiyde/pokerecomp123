@@ -631,7 +631,9 @@ static func _graphics_info(rom: RomFile, info: int, anims: Array, out: Dictionar
 		"images": images, "subsprite_tables": subsprites, "affine_anims": affine,
 	}
 	if images != 0:
-		_read_images(rom, images, _last_image(anims), out, graphics)
+		# Compressed sprites (H&S bit 0x80, e.g. Wooper/Pineco overworld data)
+		# store fastSmol/LZ77 bytes; _image_table decompresses them to `size`.
+		_read_images(rom, images, _last_image(anims), out, graphics, bool(row["compressed"]))
 	if subsprites != 0 and not out["subsprite_tables"].has(str(subsprites)):
 		out["subsprite_tables"][str(subsprites)] = _subsprite_tables(rom, subsprites)
 	if (images != 0 and out["sprite_images"][str(images)].is_empty()) \
@@ -640,10 +642,10 @@ static func _graphics_info(rom: RomFile, info: int, anims: Array, out: Dictionar
 	return row
 
 
-static func _read_images(rom: RomFile, at: int, last: int, out: Dictionary, graphics: Dictionary) -> void:
+static func _read_images(rom: RomFile, at: int, last: int, out: Dictionary, graphics: Dictionary, compressed: bool = false) -> void:
 	var images: Array = out["sprite_images"].get(str(at), [])
 	if images.size() <= last:
-		out["sprite_images"][str(at)] = _image_table(rom, at, last, graphics["sprite_images"])
+		out["sprite_images"][str(at)] = _image_table(rom, at, last, graphics["sprite_images"], compressed)
 
 
 static func _last_image(anims: Array) -> int:
@@ -656,8 +658,34 @@ static func _last_image(anims: Array) -> int:
 
 
 ## `SpriteFrameImage` rows 0 to [param last] as [data offset, size], up to the first that points at no data.
-static func _image_table(rom: RomFile, at: int, last: int, bytes: Dictionary) -> Array:
+static func _image_table(rom: RomFile, at: int, last: int, bytes: Dictionary, compressed: bool = false) -> Array:
 	var out: Array = []
+	# `relativeFrames` (byte 6 of the 8-byte SpriteFrameImage, set by
+	# `overworld_ascending_frames`) means one sheet entry: the frames are
+	# consecutive `size`-byte slices of the (possibly compressed) sheet,
+	# not separate table rows. Reading past it would parse sheet bytes as
+	# pointers, which is how Wooper rendered as a MissingNo.
+	if rom.in_bounds(at, 8) and rom.u8(at + 6) != 0:
+		var frame_size: int = rom.u16le(at + 4)
+		var sheet: int = Gen3Layout.read_pointer(rom, at, maxi(frame_size, 1), 1)
+		if sheet < 0 or frame_size == 0 or frame_size % GbaTiles.TILE_BYTES != 0:
+			return out
+		var sheet_bytes: PackedByteArray
+		if compressed and rom.id == RomRegistry.HEARTSOUL and rom.u8(sheet) != 0x10:
+			sheet_bytes = GbaSmol.decompress(rom.bytes(), sheet, (last + 1) * frame_size)
+		elif compressed:
+			sheet_bytes = GbaLz.decompress(rom.bytes(), sheet, (last + 1) * frame_size)
+		else:
+			sheet_bytes = rom.slice(sheet, (last + 1) * frame_size)
+		for index: int in last + 1:
+			var start: int = index * frame_size
+			if start + frame_size > sheet_bytes.size():
+				break
+			var key: int = sheet + start
+			out.append([key, frame_size])
+			if bytes.get(str(key), {}).get("bytes", []).size() < frame_size:
+				bytes[str(key)] = {"bytes": Array(sheet_bytes.slice(start, start + frame_size))}
+		return out
 	for index: int in last + 1:
 		var size: int = rom.u16le(at + index * 8 + 4) if rom.in_bounds(at + index * 8, 8) else 0
 		var data: int = Gen3Layout.read_pointer(rom, at + index * 8, maxi(size, 1), 1)
@@ -665,7 +693,17 @@ static func _image_table(rom: RomFile, at: int, last: int, bytes: Dictionary) ->
 			break
 		out.append([data, size])
 		if bytes.get(str(data), {}).get("bytes", []).size() < size:
-			bytes[str(data)] = {"bytes": Array(rom.slice(data, size))}
+			# Same split as _tile_bytes: H&S smol unless the 0x10 LZ77 tag,
+			# otherwise BIOS LZ77. `size` is the decompressed frame size.
+			var frame: PackedByteArray
+			if compressed and rom.id == RomRegistry.HEARTSOUL and rom.u8(data) != 0x10:
+				frame = GbaSmol.decompress(rom.bytes(), data, size)
+			elif compressed:
+				frame = GbaLz.decompress(rom.bytes(), data, size)
+			else:
+				frame = rom.slice(data, size)
+			if frame.size() == size:
+				bytes[str(data)] = {"bytes": Array(frame)}
 	return out
 
 
