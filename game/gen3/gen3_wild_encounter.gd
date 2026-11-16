@@ -258,7 +258,20 @@ func _info(method: StringName, map: Vector2i) -> Dictionary: # GetCurrentMapWild
 	if _data.world_encounter_variant_count(method, map.x, map.y) > 1 and ALTERING_CAVE_VAR.has(_events.game):
 		variant = _events.var_get(int(ALTERING_CAVE_VAR[_events.game]))
 		variant = variant if variant < _data.world_encounter_variant_count(method, map.x, map.y) else 0
-	return _data.world_encounter(method, map.x, map.y, variant)
+	return _data.world_encounter(method, map.x, map.y, variant, _time_of_day())
+
+
+## `GetTimeOfDay` from the story clock: MORNING 4-9, DAY 10-16,
+## EVENING 17, NIGHT otherwise (rtc.h's hour bands).
+func _time_of_day() -> int:
+	if _events.game != RomRegistry.HEARTSOUL:
+		return -1
+	var hour: int = _events.clock_hour
+	if hour >= 4 and hour < 10:
+		return 0
+	if hour >= 10 and hour < 17:
+		return 1
+	return 2 if hour == 17 else 3
 
 
 func _lead() -> Dictionary:

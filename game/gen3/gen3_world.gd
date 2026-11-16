@@ -1013,6 +1013,24 @@ static func _encounters(rom: RomFile, layout: Dictionary, headers: Dictionary) -
 		return {}
 	var out: Dictionary = {"land": {}, "water": {}, "rock_smash": {},
 		"old_rod": {}, "good_rod": {}, "super_rod": {}}
+	if not _encounter_rows(rom, layout, headers, at, count, stride,
+			int(layout.get("wild_method_base", 4)), out):
+		return {}
+	if rom.id == RomRegistry.HEARTSOUL:
+		# The other three time-of-day slots (MORNING/EVENING/NIGHT at
+		# +4/+44/+64; TIME_DAY stays the top-level tables above).
+		var times: Dictionary = {}
+		for time: int in [0, 2, 3]:
+			var slot_tables: Dictionary = {"land": {}, "water": {}, "rock_smash": {},
+				"old_rod": {}, "good_rod": {}, "super_rod": {}}
+			if _encounter_rows(rom, layout, headers, at, count, stride, 4 + time * 20, slot_tables):
+				times[str(time)] = slot_tables
+		out["times"] = times
+	return out
+
+
+static func _encounter_rows(rom: RomFile, layout: Dictionary, headers: Dictionary,
+		at: int, count: int, stride: int, method_base: int, out: Dictionary) -> bool:
 	var seen: Dictionary = {}
 	for index: int in count:
 		var row: int = at + index * stride
@@ -1021,17 +1039,18 @@ static func _encounters(rom: RomFile, layout: Dictionary, headers: Dictionary) -
 			continue # A wild row for a dropped map drops that row only.
 		var variant: int = int(seen.get(key, 0))
 		seen[key] = variant + 1
-		if not _encounter_methods(rom, layout, row, key, variant, out):
-			return {}
-	return out
+		if not _encounter_methods(rom, layout, row, key, variant, out, method_base):
+			return false
+	return true
 
 
 ## `GetCurrentMapWildMonHeaderId` adds Altering Cave's set to its first row; each keeps its ordinal, absent methods too.
-static func _encounter_methods(rom: RomFile, layout: Dictionary, at: int, key: String, variant: int, out: Dictionary) -> bool:
+static func _encounter_methods(rom: RomFile, layout: Dictionary, at: int, key: String, variant: int, out: Dictionary, method_base: int = -1) -> bool:
 	var records: Dictionary = {}
-	# Heart & Soul reads the TIME_DAY slot: method pointers start at header+24 (the
-	# hidden-mons pointer at +40 has no vanilla equivalent and is ignored).
-	var method_base: int = int(layout.get("wild_method_base", 4))
+	# Heart & Soul's slots hold 5 pointers each (the hidden-mons pointer,
+	# the last of the five, has no vanilla equivalent and is ignored).
+	if method_base < 0:
+		method_base = int(layout.get("wild_method_base", 4))
 	for method: int in WILD_METHODS.size():
 		var pointer_at: int = at + method_base + method * 4
 		if rom.u32le(pointer_at) == 0:

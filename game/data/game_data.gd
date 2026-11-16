@@ -1115,11 +1115,25 @@ func world_tileset_count() -> int:
 	return _tilesets().size()
 
 
+## The encounter table for one method at one time of day: Heart & Soul's
+## morning/evening/night slots live under `times`, and a slot the export
+## did not fill falls back to the day table, as the ROM's does.
+func _encounter_table(table_name: String, time: int) -> Variant:
+	var tables: Dictionary = _encounters()
+	if generation == RomRegistry.GEN3 and time >= 0 and time != 1:
+		var times: Variant = tables.get("times", {})
+		if times is Dictionary:
+			var slot: Variant = (times as Dictionary).get(str(time), {})
+			if slot is Dictionary and (slot as Dictionary).has(table_name):
+				return (slot as Dictionary)[table_name]
+	return tables.get(table_name, {})
+
+
 ## One normal encounter record by method and map group/number. The runtime names the water method "surf" while
 ## the cache keeps the cartridge table's "water" name.
-func world_encounter(method: StringName, group: int, number: int, variant: int = 0) -> Dictionary:
+func world_encounter(method: StringName, group: int, number: int, variant: int = 0, time: int = -1) -> Dictionary:
 	var table_name: String = "water" if method == &"surf" else String(method)
-	var table: Variant = _encounters().get(table_name, {})
+	var table: Variant = _encounter_table(table_name, time)
 	if not table is Dictionary:
 		return {}
 	var value: Variant = (table as Dictionary).get("%d:%d" % [group, number], {})
