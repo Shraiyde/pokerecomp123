@@ -210,7 +210,7 @@ static func _placeholder(id: StringName, placeholder: int) -> String:
 	if placeholder < PLACEHOLDERS.size():
 		return "<%s>" % PLACEHOLDERS[placeholder]
 	var names: Array[String] = SWAPPED_PLACEHOLDERS \
-		if id in [RomRegistry.SAPPHIRE, RomRegistry.EMERALD] else HOENN_PLACEHOLDERS
+		if id in [RomRegistry.SAPPHIRE, RomRegistry.EMERALD, RomRegistry.HEARTSOUL] else HOENN_PLACEHOLDERS
 	var index: int = placeholder - PLACEHOLDERS.size()
 	return "<%s>" % names[index] if index < names.size() else "<$FD %02X>" % placeholder
 

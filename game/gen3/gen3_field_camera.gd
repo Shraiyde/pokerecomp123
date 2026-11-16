@@ -84,7 +84,10 @@ func move(step: Vector2i) -> bool:
 	save_view()
 	var old: Vector2i = pos
 	_position_from(connection, direction, step)
-	load_map(int(connection["group"]), int(connection["number"]))
+	if not load_map(int(connection["group"]), int(connection["number"])):
+		pos = old # The far map is not loaded: stay here, no crossing, no view write.
+		view.clear()
+		return false
 	crossed = true
 	shift = old - pos
 	pos += step

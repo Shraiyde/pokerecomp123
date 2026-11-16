@@ -533,6 +533,22 @@ func _action(
 func _rename_slot(label: String) -> void:
 	if _data == null:
 		return
+	if _data.generation == RomRegistry.GEN3:
+		# Gen 3 slots are Gen3SaveStore files; the Gen 2 store cannot read
+		# them and must never be handed one.
+		var loaded: Dictionary = Gen3SaveStore.load_result(_data.id, _data.sha1, _selected_slot, _data)
+		if not loaded["ok"]:
+			_set_status(&"error", "The slot was not renamed.", String(loaded["message"]))
+			return
+		var save: Gen3SaveData = loaded["save"]
+		save.label = label
+		var written: Dictionary = Gen3SaveStore.save(save, _data)
+		if not written["ok"]:
+			_set_status(&"error", "The slot was not renamed.", String(written["message"]))
+			return
+		_set_status(&"success", "Renamed slot %d." % (_selected_slot + 1), label)
+		_refresh()
+		return
 	var result: Dictionary = Gen2SaveStore.rename_slot(
 		_data.id, _data.sha1, _selected_slot, label, _data
 	)
@@ -571,7 +587,15 @@ func _confirm(title: String, message: String, action: String, handler: Callable)
 
 
 func _delete_selected_slot() -> void:
-	if _data == null or not Gen2SaveStore.delete_slot(_data.id, _data.sha1, _selected_slot):
+	if _data == null:
+		_set_status(&"error", "The slot was not deleted.", "Nothing was removed.")
+		return
+	# The two stores share slot filenames; a Gen 3 file is deleted through
+	# its own store, never parsed as a Gen 2 save.
+	var deleted: bool = Gen3SaveStore.delete_slot(_data.id, _data.sha1, _selected_slot) \
+		if _data.generation == RomRegistry.GEN3 \
+		else Gen2SaveStore.delete_slot(_data.id, _data.sha1, _selected_slot)
+	if not deleted:
 		_set_status(&"error", "The slot was not deleted.", "Nothing was removed.")
 		return
 	_set_status(&"info", "Deleted slot %d." % (_selected_slot + 1), "")

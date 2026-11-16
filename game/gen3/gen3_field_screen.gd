@@ -80,7 +80,7 @@ static func open_from_save(game: GameData, save: Gen3SaveData) -> Gen3FieldScree
 	if events == null:
 		return null
 	var screen := open(game, save.map_group, save.map_number, save.player_cell, save.facing,
-		0, Gen3PlayerAvatar.Flag.ON_FOOT, -1, events)
+		events.player_gender, Gen3PlayerAvatar.Flag.ON_FOOT, -1, events)
 	if screen != null:
 		screen.save_slot = save.slot
 	return screen

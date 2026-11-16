@@ -37,6 +37,7 @@ var current_secret_base: int = 0
 var bag: Gen3Bag # `gSaveBlock1Ptr`'s items, money and coins; hosts create it, since it reads item pockets.
 var party: Array[Dictionary] = [] # `gPlayerParty`: `species`, `nickname`, `moves`, `egg`, `hp`, `personality` and `ot_id`, with no empty rows.
 var player_name: String = ""
+var player_gender: int = 0 # `gSaveBlock2Ptr->playerGender`: 0 boy, 1 girl, chosen in the intro.
 var rival_name: String = "" # FireRed and LeafGreen's `gSaveBlock1Ptr->rivalName`.
 var registered_item: int = 0 # `gSaveBlock1Ptr->registeredItem`.
 var respawn: int = 0 # `gSaveBlock1Ptr->lastHealLocation`'s `HEAL_LOCATION_*`.
@@ -98,6 +99,8 @@ func to_dict() -> Dictionary: # `gSaveBlock1Ptr`'s flags, vars, party, bag, name
 	flag_list.sort()
 	var var_list: Array = []
 	for id: Variant in _vars:
+		if int(id) >= 0x8000:
+			continue # `gSpecialVar_*` are session EWRAM in the ROM, never saved.
 		var_list.append([int(id), int(_vars[id])])
 	var stat_list: Array = []
 	for id: Variant in stats:
@@ -109,6 +112,7 @@ func to_dict() -> Dictionary: # `gSaveBlock1Ptr`'s flags, vars, party, bag, name
 		"party": party.duplicate(true),
 		"bag": bag.to_dict() if bag != null else {},
 		"player_name": player_name,
+		"player_gender": player_gender,
 		"rival_name": rival_name,
 		"registered_item": registered_item,
 		"respawn": respawn,
@@ -189,6 +193,9 @@ static func from_dict(raw: Variant, data: GameData) -> Gen3EventData:
 			return null
 		events.secret_bases.append(int(base))
 	events.player_name = String(source.get("player_name", ""))
+	events.player_gender = int(source.get("player_gender", 0))
+	if events.player_gender < 0 or events.player_gender > 1:
+		return null
 	events.rival_name = String(source.get("rival_name", ""))
 	if events.player_name.length() > 10 or events.rival_name.length() > 10:
 		return null

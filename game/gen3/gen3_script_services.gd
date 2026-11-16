@@ -9,12 +9,13 @@ const PARTY_SIZE: int = 6
 const COMMANDS: Array[String] = ["additem", "removeitem", "checkitem", "checkitemspace", "checkitemtype",
 	"addpcitem", "checkpcitem", "addmoney", "removemoney", "checkmoney", "checkcoins", "addcoins", "removecoins",
 	"bufferspeciesname", "buffermoncategory", "bufferleadmonspeciesname", "bufferpartymonnick", "bufferitemname", "bufferitemnameplural",
-	"buffermovename", "buffernumberstring", "bufferstdstring", "bufferstring", "checkplayergender", "getpartysize",
+	"buffermovename", "buffernumberstring", "bufferstdstring", "bufferstring", "buffertrainername", "buffertrainerclassname",
+	"checkplayergender", "getpartysize",
 	"checkpartymove", "checktrainerflag", "settrainerflag", "cleartrainerflag", "setrespawn", "setworldmapflag",
 	"comparestat"]
 const VERSION_NAMES: Dictionary = {
 	RomRegistry.RUBY: "RUBY", RomRegistry.SAPPHIRE: "SAPPHIRE", RomRegistry.FIRERED: "FIRERED",
-	RomRegistry.LEAFGREEN: "LEAFGREEN", RomRegistry.EMERALD: "EMERALD",
+	RomRegistry.LEAFGREEN: "LEAFGREEN", RomRegistry.EMERALD: "EMERALD", RomRegistry.HEARTSOUL: "HEART & SOUL",
 }
 
 var strings: Array[String] = ["", "", ""] # `gStringVar1` to `gStringVar3`, decoded.
@@ -101,6 +102,8 @@ func _buffer(command: String, operands: Array) -> bool:
 		"buffermovename": text = String(_data.move(value).get("name", ""))
 		"buffernumberstring": text = str(value)
 		"bufferstdstring": text = _data.world_std_string(value)
+		"buffertrainername": text = String(_data.trainer(value).get("name", ""))
+		"buffertrainerclassname": text = String(_data.trainer(value).get("class", ""))
 		_: return false
 	strings[slot] = text
 	return true
@@ -177,7 +180,8 @@ func placeholders() -> Dictionary: # The values of `GetExpandedPlaceholder`, the
 	var frlg: bool = _events.game in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN]
 	var rival: String = _events.rival_name
 	if rival.is_empty():
-		rival = ("GREEN" if gender == 0 else "RED") if frlg else ("MAY" if gender == 0 else "BRENDAN")
+		rival = "SILVER" if _events.game == RomRegistry.HEARTSOUL \
+			else ("GREEN" if gender == 0 else "RED") if frlg else ("MAY" if gender == 0 else "BRENDAN")
 	return {"STR_VAR_1": strings[0], "STR_VAR_2": strings[1], "STR_VAR_3": strings[2], "UNKNOWN_STR": "", "KUN": "",
 		"PLAYER": _events.player_name, "RIVAL": rival, "VERSION": VERSION_NAMES[_events.game],
 		"AQUA": "AQUA", "MAGMA": "MAGMA", "ARCHIE": "ARCHIE", "MAXIE": "MAXIE", "KYOGRE": "KYOGRE",

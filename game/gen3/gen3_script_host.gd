@@ -904,7 +904,10 @@ func _special_command(event: Dictionary) -> void:
 	var table: Dictionary = HEARTSOUL_SPECIALS if objects.events.game == RomRegistry.HEARTSOUL else SPECIALS[input.engine]
 	var name: String = table.get(int(operands.back()), "")
 	if name.is_empty():
-		_executing.fail(int(event["offset"]), "unsupported_special", event)
+		# An unmodelled special must not kill the script: the ROM runs a
+		# real function there, so answer 0 and let the story continue.
+		if event["command"] == "specialvar":
+			objects.events.var_set(int(operands[0]), 0)
 		return
 	var value: int = _special(name)
 	if event["command"] == "specialvar":

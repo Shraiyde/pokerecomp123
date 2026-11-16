@@ -48,6 +48,8 @@ func position(data: GameData) -> Vector2i: # overworld.c::SetPlayerCoordsFromWar
 	if int(destination["x"]) >= 0 and int(destination["y"]) >= 0:
 		return Vector2i(int(destination["x"]), int(destination["y"]))
 	var header: Dictionary = data.world_map_header(group, number)
+	if header.is_empty():
+		return Vector2i.ZERO # A dropped map has no centre to land on.
 	return Vector2i(int(header["width"]) / 2, int(header["height"]) / 2)
 
 

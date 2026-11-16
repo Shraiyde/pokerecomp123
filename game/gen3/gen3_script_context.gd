@@ -49,6 +49,7 @@ const CONDITIONS: Array = [[0], [1], [2], [0, 1], [1, 2], [0, 2]]
 var state: int = State.STOPPED
 var offset: int = -1
 var comparison: int = 0
+var pending_wild: Dictionary = {} # `setwildbattle`'s staged species/level, consumed by `dowildbattle`.
 var locals: Array[int] = [0, 0, 0, 0]
 var error: Dictionary = {}
 var _data: GameData
@@ -159,6 +160,10 @@ func _execute(row: Dictionary, at: int, command_handler: Callable) -> bool:
 		return _event_command(command, args)
 	if command == "callnative":
 		return _callnative(args)
+	if command in ["givemon", "giveegg", "setmonmove", "initclock", "gettime",
+			"checkrandomizer", "checknuzlocke", "setwildbattle", "dowildbattle",
+			"setwildbattleshiny"]:
+		return _story_command(command, args)
 	return _value_command(command, args)
 
 
@@ -217,6 +222,60 @@ func _event_command(command: String, args: Array) -> bool:
 			if limit == 0:
 				return false
 			_events.var_set(0x800D, _events.random.next() % limit)
+	return true
+
+
+## Story commands the Johto scripts use that the value-command path cannot
+## run: gift mons and eggs, the party move setter, and the clock. The
+## randomizer/nuzlocke checks answer "off" while no challenge model is
+## enabled, which is the ROM's answer with those settings disabled.
+func _story_command(command: String, args: Array) -> bool:
+	match command:
+		"givemon", "giveegg":
+			if args.is_empty():
+				return false
+			var species: int = _events.var_get(int(args[0]))
+			var level: int = 5 if command == "giveegg" else _events.var_get(int(args[1])) if args.size() > 1 else 5
+			if species <= 0 or _data.species(species).is_empty() or level < 1 or level > 100 \
+					or _events.party.size() >= PARTY_SIZE:
+				_events.var_set(VAR_RESULT, MON_CANT_GIVE)
+				return true
+			var mon: Dictionary = _gift_mon(species, level)
+			mon["egg"] = command == "giveegg"
+			if command == "givemon" and args.size() > 2:
+				var held: int = _events.var_get(int(args[2]))
+				if held > 0:
+					mon["item"] = held
+			_events.party.append(mon)
+			_events.var_set(VAR_RESULT, MON_GIVEN_TO_PARTY)
+		"setmonmove":
+			if args.size() < 3:
+				return false
+			var slot: int = _events.var_get(int(args[0]))
+			var position: int = _events.var_get(int(args[1]))
+			var move: int = _events.var_get(int(args[2]))
+			if slot < 0 or slot >= _events.party.size() or position < 0 or position > 3:
+				return true
+			var moves: Array = (_events.party[slot].get("moves", []) as Array).duplicate()
+			while moves.size() <= position:
+				moves.append(0)
+			moves[position] = move
+			_events.party[slot]["moves"] = moves
+		"initclock":
+			pass # The wall clock itself is set by StartWallClock; nothing faults.
+		"gettime":
+			_events.var_set(0x8000, _events.clock_hour)
+			_events.var_set(0x8001, _events.clock_minute)
+			_events.var_set(0x8002, 0)
+		"checkrandomizer", "checknuzlocke":
+			_events.var_set(VAR_RESULT, 0)
+			comparison = 0
+		"setwildbattle", "setwildbattleshiny":
+			if args.size() >= 2:
+				pending_wild = {"species": _events.var_get(int(args[0])),
+					"level": _events.var_get(int(args[1])), "shiny": command == "setwildbattleshiny"}
+		"dowildbattle":
+			pending_wild = {}
 	return true
 
 

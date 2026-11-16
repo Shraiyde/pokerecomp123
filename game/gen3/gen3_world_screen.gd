@@ -20,6 +20,9 @@ const START_CELL: Vector2i = Vector2i(1, 6)
 const SCREEN_RECT: Rect2 = Rect2(0.0329, 0.0888, 0.9354, 0.3304)
 
 var _view: Gen3FieldView = null
+var _data: GameData = null
+var _intro: Gen3IntroScreen = null
+var _coop_screen: Gen3CoopScreen = null
 
 
 func _ready() -> void:
@@ -32,10 +35,43 @@ func _ready() -> void:
 	if data == null:
 		_back_to_launcher()
 		return
+	_data = data
+	# A staged new game runs the ROM's intro first (gender, then name),
+	# exactly as `oak_speech_hns.c` does before `CB2_NewGame` warps to
+	# the bedroom. Anything else opens the field directly.
+	var runtime: Gen2GameRuntime = Gen2GameRuntime.instance()
+	if runtime != null and runtime.pending_new_game_slot >= 0:
+		_intro = Gen3IntroScreen.new()
+		add_child(_intro)
+		_intro.finished.connect(_on_intro_finished)
+		return
 	_view = _open_field(data)
 	if _view == null:
 		_back_to_launcher()
 		return
+	_attach_view()
+
+
+## The intro is done: the staged slot is consumed and the field opens in
+## the bedroom with the chosen name and gender.
+func _on_intro_finished(player_name: String, gender: int) -> void:
+	var runtime: Gen2GameRuntime = Gen2GameRuntime.instance()
+	var pending: Dictionary = runtime.take_pending_new_game() if runtime != null \
+		else {"slot": -1}
+	var slot: int = int(pending.get("slot", -1))
+	if _intro != null:
+		_intro.queue_free()
+		_intro = null
+	_view = Gen3FieldView.open_new(_data, START_GROUP, START_NUMBER, START_CELL,
+		player_name, gender)
+	if _view == null:
+		_back_to_launcher()
+		return
+	_view.screen.save_slot = maxi(slot, 0)
+	_attach_view()
+
+
+func _attach_view() -> void:
 	add_child(_view)
 	## The skin is the bottom layer; the game sits in its screen cutout on
 	## top of it, and the pad sits on top of both. The game is not stretched
@@ -56,6 +92,16 @@ func _ready() -> void:
 	_view.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	## The pad is the scene's own child, so it sits under a view added after
 	## it; the pad goes back on top, where a finger reaches it first.
+	## Co-op lives above the pad: HOST shows the PIN, JOIN asks for it,
+	## and the story syncs while both players walk their own games.
+	var coop_button := Button.new()
+	coop_button.text = "CO-OP"
+	coop_button.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	coop_button.position = Vector2(-52, 8)
+	coop_button.size = Vector2(104, 44)
+	coop_button.custom_minimum_size = Vector2(104, 44)
+	coop_button.pressed.connect(_open_coop)
+	add_child(coop_button)
 	var pad: Gen2TouchPad = get_node_or_null("%TouchPad") as Gen2TouchPad
 	if pad != null:
 		move_child(pad, get_child_count() - 1)
@@ -64,6 +110,23 @@ func _ready() -> void:
 		## bar insets would shift every button off the drawn art.
 		pad.use_full_rect_area = true
 		_apply_skin_layout(pad)
+
+
+func _open_coop() -> void:
+	if _coop_screen == null:
+		_coop_screen = Gen3CoopScreen.new()
+		_coop_screen.closed.connect(func() -> void: _coop_screen.visible = false)
+		add_child(_coop_screen)
+	_coop_screen.visible = true
+	move_child(_coop_screen, get_child_count() - 1)
+
+
+## The co-op pump: the transport rides the field's own frame, diffing the
+## live flags/vars against what the peer already has.
+func _process(_delta: float) -> void:
+	if _coop_screen == null or _coop_screen.transport == null or _view == null:
+		return
+	_coop_screen.transport.poll(_view.screen.host.objects.events)
 
 
 ## How a Gen 3 game starts: a staged new game (the launcher's `begin_new_game`)
@@ -81,19 +144,25 @@ func _open_field(data: GameData) -> Gen3FieldView:
 		if fresh != null:
 			fresh.screen.save_slot = slot
 		return fresh
-	slot = runtime.selected_save_slot if runtime != null and runtime.has_selected_save_slot() else 0
-	if slot >= 0:
+	slot = runtime.selected_save_slot if runtime != null and runtime.has_selected_save_slot() else -1
+	if slot < 0:
+		# No slot was selected (the selection is lost on a game change):
+		# continue the first save on disk rather than starting over.
+		var occupied: Array[int] = Gen3SaveStore.occupied_slots(data.id, data.sha1)
+		slot = occupied[0] if not occupied.is_empty() else 0
+	var unreadable: bool = false
+	if Gen3SaveStore.exists(data.id, data.sha1, slot):
 		var loaded: Dictionary = Gen3SaveStore.load_result(data.id, data.sha1, slot, data)
 		if loaded["ok"]:
 			var resumed := Gen3FieldView.open_from_save(data, loaded["save"])
 			if resumed != null:
 				return resumed
-			# A save that will not open is a fresh start rather than a dead
-			# screen: fall through to the bedroom below instead of booting
-			# back to the launcher with nothing loaded.
+		unreadable = true
 	var view := Gen3FieldView.open(data, START_GROUP, START_NUMBER, START_CELL)
 	if view != null:
-		view.screen.save_slot = maxi(slot, 0)
+		# An unreadable save is never overwritten: a fresh start writes to
+		# the next free slot, so the file on disk survives for repair.
+		view.screen.save_slot = Gen3SaveStore.next_free_slot(data.id, data.sha1) if unreadable else maxi(slot, 0)
 	return view
 
 

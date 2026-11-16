@@ -262,18 +262,15 @@ func button_rects(area: Rect2, placing: StringName = &"") -> Dictionary:
 	return rects
 
 
-## The button a point presses, or [constant PokeButton.NONE]. The d-pad is asked
-## first, so a finger sliding off it onto an overlapping face button keeps
-## walking rather than swapping to A halfway through a step.
+## The button a point presses, or [constant PokeButton.NONE]. The face
+## buttons are asked first: where their rects overlap the big joystick's,
+## the button drawn there is the one the finger means.
 func button_at(point: Vector2, area: Rect2, placing: StringName = &"") -> int:
-	var direction: int = direction_at(point, area, placing)
-	if direction != PokeButton.NONE:
-		return direction
 	var rects: Dictionary = button_rects(area, placing)
 	for button: int in rects:
 		if (rects[button] as Rect2).has_point(point):
 			return button
-	return PokeButton.NONE
+	return direction_at(point, area, placing)
 
 
 ## Which way the d-pad reads at a point, by dominant axis from its centre. One

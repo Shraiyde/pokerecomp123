@@ -21,6 +21,18 @@ static func open(game: GameData, group: int, number: int, at: Vector2i) -> Gen3F
 	return _wrap(Gen3FieldScreen.open(game, group, number, at))
 
 
+## A new game after the intro: the chosen name and gender ride in on the
+## event data, so the avatar, `checkplayergender` and the first save all
+## agree from the first frame.
+static func open_new(game: GameData, group: int, number: int, at: Vector2i,
+		player_name: String, gender: int) -> Gen3FieldView:
+	var events := Gen3EventData.new(game.id)
+	events.player_name = player_name
+	events.player_gender = gender
+	return _wrap(Gen3FieldScreen.open(game, group, number, at, 1, gender,
+		Gen3PlayerAvatar.Flag.ON_FOOT, -1, events))
+
+
 ## A saved game, reopened where it was saved. Null where the save is not valid
 ## or the player cannot stand there.
 static func open_from_save(game: GameData, save: Gen3SaveData) -> Gen3FieldView:

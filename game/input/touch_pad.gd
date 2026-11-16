@@ -231,6 +231,14 @@ func _pointer_moved(index: int, point: Vector2) -> void:
 	# that drifts a few pixels past the d-pad mid-step should not stop the walk.
 	if String(action).is_empty() or action == StringName(_touches[index]):
 		return
+	# A held touch keeps its kind: the joystick thumb may steer between
+	# directions, but sliding into a face button's rect must not swap the
+	# direction for that button (which reads as freezing while B is held),
+	# and a face-button thumb sliding onto the pad must not lose its button.
+	var current: StringName = _touches[index]
+	var directions: Array[StringName] = [&"gen2_up", &"gen2_down", &"gen2_left", &"gen2_right"]
+	if (current in directions) != (action in directions):
+		return
 	_touches[index] = action
 	_apply_held()
 

@@ -904,7 +904,7 @@ static func _headers(rom: RomFile, layout: Dictionary) -> Dictionary:
 			var at: int = Gen3Layout.read_pointer(rom, pointers + number * 4, HEADER_SIZE)
 			var row: Dictionary = _header(rom, layout, at)
 			if row.is_empty():
-				return {}
+				continue # One unreadable header drops that map, not the whole world.
 			row.merge({"group": group, "number": number})
 			out["%d:%d" % [group, number]] = row
 	return out
@@ -1018,7 +1018,7 @@ static func _encounters(rom: RomFile, layout: Dictionary, headers: Dictionary) -
 		var row: int = at + index * stride
 		var key: String = "%d:%d" % [rom.u8(row), rom.u8(row + 1)]
 		if not headers.has(key):
-			return {}
+			continue # A wild row for a dropped map drops that row only.
 		var variant: int = int(seen.get(key, 0))
 		seen[key] = variant + 1
 		if not _encounter_methods(rom, layout, row, key, variant, out):
@@ -1090,8 +1090,7 @@ static func _wild_info(rom: RomFile, layout: Dictionary, pointer_at: int, method
 static func _graphics(rom: RomFile, layout: Dictionary, headers: Dictionary) -> Dictionary:
 	var graphics: Dictionary = {"layouts": {}, "tilesets": {}, "layout_table": []}
 	for header: Dictionary in headers.values():
-		if not _read_layout(rom, header, graphics):
-			return {}
+		_read_layout(rom, header, graphics) # A failed layout drops that map only.
 	var table: Array = layout.get("map_layouts", [0, 0])
 	var frlg: bool = rom.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN]
 	for index: int in int(table[1]):
@@ -1099,8 +1098,7 @@ static func _graphics(rom: RomFile, layout: Dictionary, headers: Dictionary) -> 
 		var row: Dictionary = _layout(rom, at, frlg) if rom.in_bounds(at, 28) else {}
 		if not row.is_empty(): # NULL and unfinished rows stay empty; no script names one, which gen3_tables checks.
 			row["layout_offset"] = at
-			if not _read_layout(rom, row, graphics):
-				return {}
+			_read_layout(rom, row, graphics)
 		graphics["layout_table"].append(row)
 	return graphics
 
