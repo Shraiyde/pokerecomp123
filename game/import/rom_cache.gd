@@ -8,6 +8,7 @@ const MANIFEST: String = "manifest.json"
 const SPECIES: String = "species.json"
 const MOVES: String = "moves.json"
 const TMHM_MOVES: String = "tmhm_moves.json"
+const TMHM_ITEMS: String = "tmhm_items.json"
 const HAPPINESS_CHANGES: String = "happiness_changes.json"
 const NAME_INPUT_CHARS: String = "name_input_chars.json"
 const INTRO_TEXT: String = "intro_text.json"
@@ -93,6 +94,10 @@ static func moves_path(directory: String) -> String:
 
 static func tmhm_moves_path(directory: String) -> String:
 	return "%s/%s" % [directory, TMHM_MOVES]
+
+
+static func tmhm_items_path(directory: String) -> String:
+	return "%s/%s" % [directory, TMHM_ITEMS]
 
 
 static func happiness_changes_path(directory: String) -> String:

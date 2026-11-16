@@ -158,6 +158,8 @@ static func from_dict(raw: Variant, data: GameData) -> Gen3EventData:
 		var value: int = int((pair as Array)[1])
 		if var_id < 0 or var_id > 0xFFFF or value < 0 or value > 0xFFFF:
 			return null
+		if var_id >= 0x8000:
+			continue # Special vars are session-only; an old save's are dropped, not restored.
 		events._vars[var_id] = value
 	var party: Variant = source.get("party", null)
 	if not party is Array or (party as Array).size() > 6:

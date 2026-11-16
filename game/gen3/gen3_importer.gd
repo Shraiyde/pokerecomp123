@@ -154,7 +154,10 @@ static func _move_record(rom: RomFile, layout: Dictionary, move: int) -> Diction
 			"effect_chance": 0,  # lives in the move's AdditionalEffect list, not MoveInfo
 			"target": (acc_target >> 7) & 0x1FF,
 			"priority": priority,
-			"flags": 0,  # MoveInfo flags are spread across bitfield words; not mapped yet
+			# `struct MoveInfo`'s two flag words (+20 makesContact..minimize,
+			# +24 ignoresTargetAbility..), exported raw until a battle reads them.
+			"flags": rom.u32le(at + 20),
+			"flags_high": rom.u32le(at + 24),
 		}
 	return {
 		"effect": rom.u8(at + Gen3Layout.MOVE_EFFECT),
@@ -493,10 +496,16 @@ static func import_rom(rom: RomFile, on_progress: Callable = Callable()) -> Dict
 	var tmhm_count: int = int(layout.get("tmhm_count", TMHM_COUNT))
 	var tmhm_stride: int = int(layout.get("tmhm_stride", 2))
 	var tmhm_move_field: int = int(layout.get("tmhm_move_field", 0))
+	var tmhm_items: Array = []
 	for index: int in tmhm_count:
 		tmhm_moves.append(rom.u16le(int(layout["tmhm_moves"]) + index * tmhm_stride + tmhm_move_field))
+		# H&S's `gTMHMItemMoveIds` pairs each move with its own item id;
+		# vanilla tables carry moves only, which reads as item 0.
+		tmhm_items.append(rom.u16le(int(layout["tmhm_moves"]) + index * tmhm_stride + tmhm_move_field - 2) \
+			if tmhm_stride >= 4 else 0)
 	var sections: Dictionary = {
 		RomCache.tmhm_moves_path(directory): tmhm_moves,
+		RomCache.tmhm_items_path(directory): tmhm_items,
 		RomCache.species_path(directory): species,
 		RomCache.moves_path(directory): moves,
 		RomCache.types_path(directory): types,

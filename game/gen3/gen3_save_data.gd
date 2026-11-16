@@ -32,7 +32,8 @@ var saved_at: int = 0 # Host second the slot was written at.
 ## camera is on, and the event data. Null where the screen has no avatar yet.
 static func capture(
 	data: GameData, slot_number: int, event_data: Gen3EventData,
-	group: int, number: int, cell: Vector2i, facing_direction: int
+	group: int, number: int, cell: Vector2i, facing_direction: int,
+	play_seconds: int = 0
 ) -> Gen3SaveData:
 	if data == null or event_data == null or slot_number < 0 or slot_number >= MAX_SLOTS:
 		return null
@@ -47,6 +48,7 @@ static func capture(
 	out.player_cell = cell
 	out.facing = facing_direction
 	out.events = event_data.to_dict()
+	out.play_time_seconds = maxi(play_seconds, 0)
 	out.saved_at = int(Time.get_unix_time_from_system())
 	return out
 

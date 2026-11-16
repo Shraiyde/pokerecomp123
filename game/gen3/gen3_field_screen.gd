@@ -19,6 +19,8 @@ var options_menu: Gen3FieldOptionsMenu
 ## The slot this session saves back to: 0 by default, or the slot it was
 ## loaded from. The world screen sets it; the launcher stages it.
 var save_slot: int = 0
+var _opened_ms: int = 0 # When this field opened, for the play timer.
+var _play_base: int = 0 # Play seconds a loaded save already carried.
 var _save_prompt: Gen3SavePrompt = null # The save sequence in progress, or null on the open field.
 var _keys_held: bool = false
 var _keys_pressed: bool = false
@@ -65,6 +67,7 @@ static func open(game: GameData, group: int, number: int, at: Vector2i, directio
 	screen.options_menu = Gen3FieldOptionsMenu.new(screen.message, screen.host.input.engine)
 	screen._apply_options()
 	screen.doors = Gen3FieldDoor.new(camera, screen.vram, screen.host.input, events)
+	screen._opened_ms = Time.get_ticks_msec()
 	screen.vram.palette.faded.fill(0) # FieldCB_FadeTryShowMapPopup's FadeInFromBlack.
 	screen.weather.fade_screen(Gen3FieldWeather.Fade.FROM_BLACK, 0)
 	return screen
@@ -83,6 +86,7 @@ static func open_from_save(game: GameData, save: Gen3SaveData) -> Gen3FieldScree
 		events.player_gender, Gen3PlayerAvatar.Flag.ON_FOOT, -1, events)
 	if screen != null:
 		screen.save_slot = save.slot
+		screen._play_base = save.play_time_seconds
 	return screen
 
 
@@ -147,7 +151,8 @@ func _write_save() -> Dictionary:
 	var player: Gen3ObjectEvents.ObjectEvent = host.avatar.object()
 	var cell: Vector2i = player.current - Vector2i.ONE * Gen3MapGrid.MAP_OFFSET
 	var save := Gen3SaveData.capture(data, save_slot, events,
-		host.objects.camera.group, host.objects.camera.number, cell, player.facing)
+		host.objects.camera.group, host.objects.camera.number, cell, player.facing,
+		_play_base + (Time.get_ticks_msec() - _opened_ms) / 1000)
 	if save == null:
 		return {"ok": false, "message": "the save could not be built"}
 	return Gen3SaveStore.save(save, data)

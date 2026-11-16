@@ -10,7 +10,7 @@ const COMMANDS: Array[String] = ["additem", "removeitem", "checkitem", "checkite
 	"addpcitem", "checkpcitem", "addmoney", "removemoney", "checkmoney", "checkcoins", "addcoins", "removecoins",
 	"bufferspeciesname", "buffermoncategory", "bufferleadmonspeciesname", "bufferpartymonnick", "bufferitemname", "bufferitemnameplural",
 	"buffermovename", "buffernumberstring", "bufferstdstring", "bufferstring", "buffertrainername", "buffertrainerclassname",
-	"checkplayergender", "getpartysize",
+	"bufferdecorationname", "bufferboxname", "buffercontestname", "checkplayergender", "getpartysize",
 	"checkpartymove", "checktrainerflag", "settrainerflag", "cleartrainerflag", "setrespawn", "setworldmapflag",
 	"comparestat"]
 const VERSION_NAMES: Dictionary = {
@@ -104,12 +104,19 @@ func _buffer(command: String, operands: Array) -> bool:
 		"bufferstdstring": text = _data.world_std_string(value)
 		"buffertrainername": text = String(_data.trainer(value).get("name", ""))
 		"buffertrainerclassname": text = String(_data.trainer(value).get("class", ""))
+		"bufferdecorationname", "bufferboxname", "buffercontestname": text = "" # No decoration/box/contest name model yet; an empty buffer, never a fault.
 		_: return false
 	strings[slot] = text
 	return true
 
 
-func buffer_tm_move(item: int) -> int: # `BufferTMHMMoveName`: true for an item in `ITEM_TM01` to `ITEM_HM08`, with `gStringVar2` set.
+func buffer_tm_move(item: int) -> int: # `BufferTMHMMoveName`: true for a TM/HM item, with `gStringVar2` set.
+	# The cartridge's own pair table first (Heart & Soul numbers its TM
+	# items in its own 900-item table, not vanilla's ITEM_TM01 range).
+	for number: int in range(1, _data.tmhm_moves().size() + 1):
+		if _data.tmhm_item(number) == item and item > 0:
+			strings[1] = String(_data.move(_data.tmhm_move(number)).get("name", ""))
+			return 1
 	if item < Gen3Bag.TM01 or item > Gen3Bag.HM08:
 		return 0
 	strings[1] = String(_data.move(_data.tmhm_move(item - Gen3Bag.TM01 + 1)).get("name", ""))

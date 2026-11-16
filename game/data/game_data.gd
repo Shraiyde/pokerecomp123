@@ -26,6 +26,7 @@ var _species: Array = []
 var _moves: Array = []
 ## TMHMMoves in TMNUM order, restored to integers because JSON reads them back as floats.
 var _tmhm_moves: Array[int] = []
+var _tmhm_items: Array[int] = []
 ## HappinessChanges, one row of three signed changes per HAPPINESS_* constant.
 var _happiness_changes: Array = []
 var _name_input_chars: Array = []
@@ -281,6 +282,7 @@ func _read_cache(path: String) -> void:
 	_species = _read_array(RomCache.species_path(path))
 	_moves = _read_array(RomCache.moves_path(path))
 	_tmhm_moves = _read_int_array(RomCache.tmhm_moves_path(path))
+	_tmhm_items = _read_int_array(RomCache.tmhm_items_path(path))
 	_happiness_changes = _read_array(RomCache.happiness_changes_path(path))
 	_name_input_chars = _read_array(RomCache.name_input_chars_path(path))
 	_string_buffer_pointers = _read_int_array(RomCache.text_buffers_path(path))
@@ -1961,6 +1963,14 @@ func tmhm_move(number: int) -> int:
 	if number < 1 or number > _tmhm_moves.size():
 		return 0
 	return _tmhm_moves[number - 1]
+
+
+## The item id one TM/HM number is, from the cartridge's own pair table
+## (Heart & Soul's `gTMHMItemMoveIds`); 0 where the table carries moves only.
+func tmhm_item(number: int) -> int:
+	if number < 1 or number > _tmhm_items.size():
+		return 0
+	return _tmhm_items[number - 1]
 
 
 ## CanLearnTMHMMove's own scan of TMHMMoves for wPutativeTMHMMove: the one-based number that teaches [param

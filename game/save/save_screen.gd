@@ -84,7 +84,9 @@ func open_new_game(slot: int = -1) -> bool:
 func open_new_slot() -> bool:
 	if _data == null:
 		return false
-	var slot: int = Gen2SaveStore.next_free_slot(_data.id, _data.sha1)
+	var slot: int = Gen3SaveStore.next_free_slot(_data.id, _data.sha1) \
+		if _data.generation == RomRegistry.GEN3 \
+		else Gen2SaveStore.next_free_slot(_data.id, _data.sha1)
 	if slot < 0:
 		_set_status(&"error", "No new slot is available.", "Delete a save to free one.")
 		return false
@@ -105,7 +107,9 @@ func create_new_game(label: String = "", challenge: StringName = &"") -> bool:
 	# Nothing is selected when the game has no saves at all, and a new game is
 	# then unambiguously a new slot.
 	if _selected_slot < 0:
-		_selected_slot = Gen2SaveStore.next_free_slot(_data.id, _data.sha1)
+		_selected_slot = Gen3SaveStore.next_free_slot(_data.id, _data.sha1) \
+			if _data.generation == RomRegistry.GEN3 \
+			else Gen2SaveStore.next_free_slot(_data.id, _data.sha1)
 	if _selected_slot < 0:
 		_set_status(&"error", "New game was not created.", "Every save slot is in use.")
 		return false
@@ -344,7 +348,11 @@ func _refresh() -> void:
 			"Return to the shelf and import a supported dump.",
 		)
 		return
-	_slots = Gen2SaveStore.slots_for(_data.id, _data.sha1, _data)
+	# A Gen 3 cartridge's slots are Gen3SaveStore files with the same row
+	# shape; listing them through the Gen 2 store reads every one as empty.
+	_slots = Gen3SaveStore.slots_for(_data.id, _data.sha1, _data) \
+		if _data.generation == RomRegistry.GEN3 \
+		else Gen2SaveStore.slots_for(_data.id, _data.sha1, _data)
 	# Slots are created on demand, so a slot number is no longer its own index
 	# in this list and a game with no saves has no selectable slot at all.
 	if _row_for(_selected_slot).is_empty():

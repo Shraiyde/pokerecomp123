@@ -160,9 +160,15 @@ func _execute(row: Dictionary, at: int, command_handler: Callable) -> bool:
 		return _event_command(command, args)
 	if command == "callnative":
 		return _callnative(args)
-	if command in ["givemon", "giveegg", "setmonmove", "initclock", "gettime",
+	if command in ["givemon", "giveegg", "giveoddegg", "givenamedmon", "setmonmove", "initclock", "gettime",
 			"checkrandomizer", "checknuzlocke", "setwildbattle", "dowildbattle",
-			"setwildbattleshiny"]:
+			"setwildbattleshiny", "setberrytree", "removenamedmon", "remove5mons",
+			"removegenericmon", "deleteparty", "hidefollower", "givebp",
+			"baobacheckmon", "checkpartymonlevel", "calculatemonstats",
+			"getbraillestringwidth", "createvobject", "turnvobject",
+			"adddecoration", "removedecoration", "checkdecor", "checkdecorspace",
+			"addelevmenuitem", "showelevmenu", "choosecontestmon", "startcontest",
+			"showcontestresults", "contestlinktransfer", "dynmultipush", "dynmultichoice"]:
 		return _story_command(command, args)
 	return _value_command(command, args)
 
@@ -231,17 +237,17 @@ func _event_command(command: String, args: Array) -> bool:
 ## enabled, which is the ROM's answer with those settings disabled.
 func _story_command(command: String, args: Array) -> bool:
 	match command:
-		"givemon", "giveegg":
+		"givemon", "giveegg", "giveoddegg", "givenamedmon":
 			if args.is_empty():
 				return false
 			var species: int = _events.var_get(int(args[0]))
-			var level: int = 5 if command == "giveegg" else _events.var_get(int(args[1])) if args.size() > 1 else 5
+			var level: int = 5 if command != "givemon" else _events.var_get(int(args[1])) if args.size() > 1 else 5
 			if species <= 0 or _data.species(species).is_empty() or level < 1 or level > 100 \
 					or _events.party.size() >= PARTY_SIZE:
 				_events.var_set(VAR_RESULT, MON_CANT_GIVE)
 				return true
 			var mon: Dictionary = _gift_mon(species, level)
-			mon["egg"] = command == "giveegg"
+			mon["egg"] = command != "givemon" and command != "givenamedmon"
 			if command == "givemon" and args.size() > 2:
 				var held: int = _events.var_get(int(args[2]))
 				if held > 0:
@@ -276,6 +282,18 @@ func _story_command(command: String, args: Array) -> bool:
 					"level": _events.var_get(int(args[1])), "shiny": command == "setwildbattleshiny"}
 		"dowildbattle":
 			pending_wild = {}
+		"setberrytree":
+			# `ScrCmd_setberrytree`: tree, berry, stage, all literal bytes.
+			if args.size() >= 3 and _events.berries != null:
+				_events.berries.plant(int(args[0]), int(args[1]), int(args[2]))
+		"checkpartymonlevel", "baobacheckmon", "getbraillestringwidth", "dynmultichoice":
+			# `dynmultichoice` picks the first row until its menu exists.
+			_events.var_set(VAR_RESULT, 0)
+			comparison = 0
+		_:
+			pass # Unmodelled systems (followers, decorations, contests,
+			# elevators, party removal, BP): the story continues without
+			# them rather than dying on a fault.
 	return true
 
 

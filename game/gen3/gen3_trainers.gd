@@ -196,7 +196,8 @@ static func _mon_expansion(rom: RomFile, layout: Dictionary, at: int) -> Diction
 		if move >= Gen3Layout.moves_count(layout):
 			return {}
 		moves.append(move)
-	return {"species": species, "level": level, "iv": iv, "item": item, "moves": moves}
+	return {"species": species, "level": level, "iv": iv, "item": item,
+		"ability": rom.u16le(at + 24), "moves": moves}
 
 
 ## Money tables end on class 0xff, whose value is the cartridge's fallback.
