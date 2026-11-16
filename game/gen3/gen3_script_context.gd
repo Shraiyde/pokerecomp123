@@ -168,7 +168,8 @@ func _execute(row: Dictionary, at: int, command_handler: Callable) -> bool:
 			"getbraillestringwidth", "createvobject", "turnvobject",
 			"adddecoration", "removedecoration", "checkdecor", "checkdecorspace",
 			"addelevmenuitem", "showelevmenu", "choosecontestmon", "startcontest",
-			"showcontestresults", "contestlinktransfer", "dynmultipush", "dynmultichoice"]:
+			"showcontestresults", "contestlinktransfer", "dynmultipush", "dynmultichoice",
+			"applymovementnofollower"]:
 		return _story_command(command, args)
 	return _value_command(command, args)
 

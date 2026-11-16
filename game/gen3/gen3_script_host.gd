@@ -182,9 +182,21 @@ func choose(value: int) -> void: # The player's answer to a `yesnobox` or `multi
 	resume()
 
 
+## The nuzlocke death rule at a white out: every party mon fainted, and
+## fainted means dead — marked, so nothing downstream revives it as if
+## it had only fainted.
+func _nuzlocke_white_out() -> void:
+	if not objects.events.nuzlocke:
+		return
+	for mon: Dictionary in objects.events.party:
+		mon["hp"] = 0
+		mon["dead"] = true
+
+
 func finish_battle(outcome: int) -> Array[Dictionary]: # `CB2_EndTrainerBattle`, with a [enum Gen3TrainerBattle.Outcome]: a loss emits `white_out` and leaves the script stopped.
 	objects.events.battle_outcome = outcome
 	if not battle.finish(outcome, objects.events):
+		_nuzlocke_white_out()
 		return [{"kind": "white_out"}]
 	resume()
 	return []
@@ -194,6 +206,7 @@ func finish_wild_battle(outcome: int) -> Array[Dictionary]: # CB2_EndWildBattle;
 	objects.events.battle_outcome = outcome
 	wild.restart_immunity()
 	if outcome in [Gen3TrainerBattle.Outcome.LOST, Gen3TrainerBattle.Outcome.DREW]:
+		_nuzlocke_white_out()
 		return [{"kind": "white_out"}]
 	unfreeze_field()
 	return []

@@ -90,7 +90,7 @@ func _attempt(method: StringName, map: Vector2i, behavior: int, previous: int, a
 		return {}
 	if not _rate_test(int(info["rate"]), avatar_flags):
 		return {}
-	return _generate(info, method)
+	return _generate(info, method, map)
 
 
 func _check_frlg(map: Vector2i, behavior: int, attributes: int, avatar_flags: int) -> Dictionary: # TryStandardWildEncounter.
@@ -105,7 +105,7 @@ func _check_frlg(map: Vector2i, behavior: int, attributes: int, avatar_flags: in
 	if previous != behavior and _events.random.next() % 100 >= NEW_METATILE_ODDS:
 		return {}
 	var rate: int = int(info["rate"])
-	var mon: Dictionary = _generate(info, method) if _rate_test(rate, avatar_flags) else {}
+	var mon: Dictionary = _generate(info, method, map) if _rate_test(rate, avatar_flags) else {}
 	if mon.is_empty():
 		_rate_buff += rate
 	else:
@@ -182,7 +182,7 @@ func _rate_roll() -> int: # FireRed's WildEncounterRandom: ISO_RANDOMIZE2 on a s
 	return _frlg_rng >> 16
 
 
-func _generate(info: Dictionary, method: StringName) -> Dictionary: # TryGenerateWildMon with WILD_CHECK_REPEL and, on Emerald, WILD_CHECK_KEEN_EYE.
+func _generate(info: Dictionary, method: StringName, map: Vector2i = Vector2i(-1, -1)) -> Dictionary: # TryGenerateWildMon with WILD_CHECK_REPEL and, on Emerald, WILD_CHECK_KEEN_EYE.
 	var slots: Array = info["slots"]
 	var index: int = _influenced_slot(slots, method)
 	if index < 0:
@@ -194,7 +194,11 @@ func _generate(info: Dictionary, method: StringName) -> Dictionary: # TryGenerat
 	var species: int = int(row["species"])
 	if _events.randomizer_on("wild"):
 		species = Gen3Randomizer.species_for(_events, species, _data.species_count())
-	return {"species": species, "level": level, "area": String(method)}
+	var out: Dictionary = {"species": species, "level": level, "area": String(method)}
+	if _events.nuzlocke:
+		# Only the first encounter on a map may ever be caught.
+		out["nuzlocke_first"] = _events.nuzlocke_encounter("%d:%d" % [map.x, map.y])
+	return out
 
 
 func _influenced_slot(slots: Array, method: StringName) -> int: # TryGetAbilityInfluencedWildMonIndex; pret's non-BUGFIX build scans 12 water rows, past the table's five.

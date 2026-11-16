@@ -43,6 +43,7 @@ var player_gender: int = 0 # `gSaveBlock2Ptr->playerGender`: 0 boy, 1 girl, chos
 ## vars 0x40FA/0x40FB, where the ROM keeps it. All off is a vanilla game.
 var randomizer: Dictionary = {"wild": false, "trainer": false, "items": false, "starter": false}
 var nuzlocke: bool = false # The challenge menu's nuzlocke switch; its catch/death rules ride the battle model.
+var nuzlocke_seen: Array = [] # Map keys ("group:number") whose first encounter already happened.
 var rival_name: String = "" # FireRed and LeafGreen's `gSaveBlock1Ptr->rivalName`.
 var registered_item: int = 0 # `gSaveBlock1Ptr->registeredItem`.
 var respawn: int = 0 # `gSaveBlock1Ptr->lastHealLocation`'s `HEAL_LOCATION_*`.
@@ -64,6 +65,15 @@ func _init(game_id: StringName) -> void:
 ## `RandomizerFeatureEnabled` for one `tx_Random_*` switch.
 func randomizer_on(feature: String) -> bool:
 	return bool(randomizer.get(feature, false))
+
+
+## The nuzlocke first-encounter rule: true (and recorded) the first time
+## a map produces an encounter, false for every later one there.
+func nuzlocke_encounter(map_key: String) -> bool:
+	if map_key in nuzlocke_seen:
+		return false
+	nuzlocke_seen.append(map_key)
+	return true
 
 
 func flag_get(id: int) -> bool:
@@ -125,6 +135,7 @@ func to_dict() -> Dictionary: # `gSaveBlock1Ptr`'s flags, vars, party, bag, name
 		"player_gender": player_gender,
 		"randomizer": randomizer.duplicate(),
 		"nuzlocke": nuzlocke,
+		"nuzlocke_seen": nuzlocke_seen.duplicate(),
 		"rival_name": rival_name,
 		"registered_item": registered_item,
 		"respawn": respawn,
@@ -215,6 +226,10 @@ static func from_dict(raw: Variant, data: GameData) -> Gen3EventData:
 		for feature: String in events.randomizer:
 			events.randomizer[feature] = bool((randomizer_raw as Dictionary).get(feature, false))
 	events.nuzlocke = bool(source.get("nuzlocke", false))
+	var seen_raw: Variant = source.get("nuzlocke_seen", [])
+	if seen_raw is Array:
+		for key: Variant in seen_raw as Array:
+			events.nuzlocke_seen.append(String(key))
 	events.rival_name = String(source.get("rival_name", ""))
 	if events.player_name.length() > 10 or events.rival_name.length() > 10:
 		return null
