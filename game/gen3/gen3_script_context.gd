@@ -281,8 +281,8 @@ func _story_command(command: String, args: Array) -> bool:
 			_events.var_set(VAR_RESULT, any_on)
 			comparison = any_on
 		"checknuzlocke":
-			_events.var_set(VAR_RESULT, 0)
-			comparison = 0
+			_events.var_set(VAR_RESULT, int(_events.nuzlocke))
+			comparison = int(_events.nuzlocke)
 		"setwildbattle", "setwildbattleshiny":
 			if args.size() >= 2:
 				pending_wild = {"species": _events.var_get(int(args[0])),

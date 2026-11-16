@@ -26,10 +26,11 @@ static func open(game: GameData, group: int, number: int, at: Vector2i) -> Gen3F
 ## agree from the first frame.
 static func open_new(game: GameData, group: int, number: int, at: Vector2i,
 		player_name: String, gender: int, randomizer: Dictionary = {},
-		seed: int = 0) -> Gen3FieldView:
+		seed: int = 0, nuzlocke: bool = false) -> Gen3FieldView:
 	var events := Gen3EventData.new(game.id)
 	events.player_name = player_name
 	events.player_gender = gender
+	events.nuzlocke = nuzlocke
 	for feature: String in events.randomizer:
 		events.randomizer[feature] = bool(randomizer.get(feature, false))
 	if events.randomizer.values().any(func(value: Variant) -> bool: return bool(value)):

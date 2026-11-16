@@ -873,7 +873,11 @@ func _trainer_command(event: Dictionary) -> void:
 			selected_slot = int(trainers.approaching[trainers.approaching_id]["slot"])
 		"dotrainerbattle", "trainerbattlebegin":
 			_approached_slots.assign(trainers.approaching.map(func(row: Dictionary) -> int: return int(row["slot"])))
-			_output.append(battle.begin(trainers.approaching.size()))
+			var started: Dictionary = battle.begin(trainers.approaching.size())
+			started["party_a"] = battle.enemy_party(objects.camera.data, objects.events, battle.opponent_a)
+			if battle.opponent_b != 0:
+				started["party_b"] = battle.enemy_party(objects.camera.data, objects.events, battle.opponent_b)
+			_output.append(started)
 			trainers.approaching.clear() # gNoOfApproachingTrainers ends here, unlike gTrainerApproachedPlayer.
 		"gotopostbattlescript": _executing.offset = battle.end_script
 		"gotobeatenscript":
@@ -935,7 +939,7 @@ func _special(name: String) -> int: # One row of [constant SPECIALS]: its return
 		"GetBattleOutcome": return events.battle_outcome
 		"CalculatePlayerPartyCount": return events.party.size()
 		"CountPartyNonEggMons": return events.party.filter(func(mon: Dictionary) -> bool: return not bool(mon["egg"])).size()
-		"IsNuzlockeNicknamingActive": return 0 # nuzlocke.c reads the challenge settings, which the engine has no model of; a Nuzlocke cannot be active before the lab's police episode sets it, so the starter's check is inactive.
+		"IsNuzlockeNicknamingActive": return int(events.nuzlocke) # nuzlocke.c reads the challenge settings.
 		"IsPokecenterChallengeActivated": return 0 # No PokeCenter challenge model in the engine; never active here, so Mom's regular script takes its normal path.
 		"SetBattledTrainerFlag": events.flag_set(Gen3TrainerBattle.TRAINER_FLAGS_START + battle.opponent_a)
 		"HealPlayerParty": _output.append({"kind": "heal_party"})

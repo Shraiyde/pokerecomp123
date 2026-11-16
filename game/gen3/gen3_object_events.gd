@@ -259,6 +259,7 @@ class ObjectEvent:
 	extends RefCounted
 	var active: bool = false
 	var is_player: bool = false
+	var is_follower: bool = false # The lead mon trailing the player: never blocks, never interacted with.
 	var tracked_by_camera: bool = false
 	var graphics_id: int = 0
 	var movement_type: int = 0
@@ -885,7 +886,7 @@ func _elevation_mismatch(elevation: int, x: int, y: int) -> bool:
 func _object_at(object: ObjectEvent, x: int, y: int) -> bool:
 	var at := Vector2i(x, y)
 	for other: ObjectEvent in objects:
-		if other.active and other != object and (other.current == at or other.previous == at) \
+		if other.active and not other.is_follower and other != object and (other.current == at or other.previous == at) \
 				and (object.current_elevation == 0 or other.current_elevation == 0
 					or object.current_elevation == other.current_elevation):
 			return true

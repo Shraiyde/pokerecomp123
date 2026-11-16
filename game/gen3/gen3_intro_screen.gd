@@ -9,7 +9,7 @@ extends Control
 ## The randomizer choice is the challenge menu's: all `tx_Random_*`
 ## switches on with a fresh seed, or a vanilla game.
 
-signal finished(player_name: String, gender: int, randomizer: Dictionary, seed: int)
+signal finished(player_name: String, gender: int, randomizer: Dictionary, seed: int, nuzlocke: bool)
 
 const PRESET_NAMES: Array[String] = ["GOLD", "KRIS"]
 const SPEECH_PAGES: Array[String] = [
@@ -27,6 +27,7 @@ const READY_PAGES: Array[String] = [
 var _gender: int = 0
 var _name: String = ""
 var _randomizer: Dictionary = {"wild": false, "trainer": false, "items": false, "starter": false}
+var _nuzlocke: bool = false
 var _seed: int = 0
 var _stage: String = "speech"
 var _page: int = 0
@@ -61,6 +62,18 @@ func _clear_body() -> void:
 	_text_label = null
 
 
+## Oak himself, from the ROM's own `graphics/oak_speech_hns/oak_hns.png`,
+## shown while he speaks, as the ROM shows him.
+func _add_oak() -> void:
+	var oak := TextureRect.new()
+	oak.texture = load("res://game/gen3/oak_hns.png")
+	oak.custom_minimum_size = Vector2(192, 192)
+	oak.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	oak.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	oak.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_body.add_child(oak)
+
+
 func _add_text(text: String) -> Label:
 	_text_label = Label.new()
 	_text_label.text = text
@@ -82,6 +95,7 @@ func _add_button(text: String, on_pressed: Callable) -> Button:
 func _show_speech() -> void:
 	_stage = "speech"
 	_clear_body()
+	_add_oak()
 	_add_text(SPEECH_PAGES[_page])
 	_add_button("NEXT", _next_speech)
 
@@ -106,6 +120,7 @@ func _next_speech() -> void:
 func _show_gender() -> void:
 	_stage = "gender"
 	_clear_body()
+	_add_oak()
 	_add_text("Are you a boy?\nOr are you a girl?")
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -153,6 +168,7 @@ func _on_naming_cancelled() -> void:
 func _show_confirm() -> void:
 	_stage = "confirm"
 	_clear_body()
+	_add_oak()
 	_add_text("Oh! So you're %s?" % _name)
 	_add_button("YES", _show_challenge)
 	_add_button("NO", _show_gender) # The ROM loops back to Boy/Girl.
@@ -161,15 +177,18 @@ func _show_confirm() -> void:
 func _show_challenge() -> void:
 	_stage = "challenge"
 	_clear_body()
+	_add_oak()
 	_add_text("What challenge are you\nexpecting?")
-	_add_button("VANILLA", _choose_challenge.bind(false))
-	_add_button("RANDOMIZER", _choose_challenge.bind(true))
+	_add_button("VANILLA", _choose_challenge.bind(0))
+	_add_button("RANDOMIZER", _choose_challenge.bind(1))
+	_add_button("NUZLOCKE", _choose_challenge.bind(2))
 
 
-func _choose_challenge(randomized: bool) -> void:
+func _choose_challenge(mode: int) -> void:
 	for feature: String in _randomizer:
-		_randomizer[feature] = randomized
-	if randomized:
+		_randomizer[feature] = mode == 1
+	_nuzlocke = mode == 2
+	if mode == 1:
 		var rng := RandomNumberGenerator.new()
 		rng.randomize()
 		_seed = rng.randi()
@@ -184,4 +203,4 @@ func _finish() -> void:
 	if _done:
 		return
 	_done = true
-	finished.emit(_name, _gender, _randomizer.duplicate(), _seed)
+	finished.emit(_name, _gender, _randomizer.duplicate(), _seed, _nuzlocke)

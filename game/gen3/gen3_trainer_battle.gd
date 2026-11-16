@@ -100,6 +100,21 @@ func begin(approaching_count: int) -> Dictionary: # `BattleSetup_StartTrainerBat
 		"defeat_a": _speech[0]["defeat"], "defeat_b": _speech[1]["defeat"], "victory": victory_speech}
 
 
+## The enemy party a battle starts with: the trainer's own mons, permuted
+## by the seed when the challenge menu's trainer randomization is on.
+func enemy_party(data: GameData, events: Gen3EventData, opponent: int) -> Array:
+	var party: Array = []
+	for mon: Variant in data.trainer(opponent).get("party", []):
+		if not mon is Dictionary:
+			continue
+		var row: Dictionary = (mon as Dictionary).duplicate(true)
+		if events.randomizer_on("trainer"):
+			row["species"] = Gen3Randomizer.species_for(events,
+				int(row.get("species", 0)), data.species_count())
+		party.append(row)
+	return party
+
+
 func finish(outcome: int, events: Gen3EventData) -> bool: # `CB2_EndTrainerBattle`: false when the player whites out instead of returning to the script.
 	var defeated: bool = outcome in [Outcome.LOST, Outcome.DREW]
 	if _frlg and mode == Mode.FACILITY_OR_EARLY_RIVAL:

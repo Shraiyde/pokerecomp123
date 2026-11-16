@@ -54,7 +54,7 @@ func _ready() -> void:
 
 ## The intro is done: the staged slot is consumed and the field opens in
 ## the bedroom with the chosen name and gender.
-func _on_intro_finished(player_name: String, gender: int, randomizer: Dictionary, seed: int) -> void:
+func _on_intro_finished(player_name: String, gender: int, randomizer: Dictionary, seed: int, nuzlocke: bool) -> void:
 	var runtime: Gen2GameRuntime = Gen2GameRuntime.instance()
 	var pending: Dictionary = runtime.take_pending_new_game() if runtime != null \
 		else {"slot": -1}
@@ -63,7 +63,7 @@ func _on_intro_finished(player_name: String, gender: int, randomizer: Dictionary
 		_intro.queue_free()
 		_intro = null
 	_view = Gen3FieldView.open_new(_data, START_GROUP, START_NUMBER, START_CELL,
-		player_name, gender, randomizer, seed)
+		player_name, gender, randomizer, seed, nuzlocke)
 	if _view == null:
 		_back_to_launcher()
 		return
@@ -80,6 +80,11 @@ func _attach_view() -> void:
 	var skin: Control = get_node_or_null("Skin")
 	if skin != null:
 		move_child(skin, 0)
+		# The skin art is the player's own file; when it sits beside the
+		# scene it is used, and the game runs without it when it does not.
+		if skin is TextureRect and (skin as TextureRect).texture == null \
+				and ResourceLoader.exists("res://game/gen3/gba_skin.png"):
+			(skin as TextureRect).texture = load("res://game/gen3/gba_skin.png")
 	move_child(_view, 1)
 	_view.anchor_left = SCREEN_RECT.position.x
 	_view.anchor_top = SCREEN_RECT.position.y

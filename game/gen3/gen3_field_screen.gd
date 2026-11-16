@@ -21,6 +21,10 @@ var options_menu: Gen3FieldOptionsMenu
 var save_slot: int = 0
 var _opened_ms: int = 0 # When this field opened, for the play timer.
 var _play_base: int = 0 # Play seconds a loaded save already carried.
+var _follower_slot: int = -1 # The follower mon's object slot, or -1 for none.
+var _follower_species: int = 0
+var _follower_map: String = ""
+var _follower_trail: Array[Vector2i] = [] # The player's recent cells, newest first.
 var _save_prompt: Gen3SavePrompt = null # The save sequence in progress, or null on the open field.
 var _keys_held: bool = false
 var _keys_pressed: bool = false
@@ -102,6 +106,7 @@ func frame(held: Array[int] = [], pressed: Array[int] = []) -> Array: # One fram
 	var camera: Gen3FieldCamera = host.objects.camera
 	if host.avatar == avatar and camera.update(avatar.object().pixel_position - previous) != Vector2i.ZERO:
 		host.objects.follow_camera()
+	_update_follower()
 	if camera.crossed:
 		_cross_connection()
 	weather.sprites.animate(camera.sprite_coord_offset())
@@ -109,6 +114,60 @@ func frame(held: Array[int] = [], pressed: Array[int] = []) -> Array: # One fram
 	vram.step()
 	vram.palette.transfer()
 	return out
+
+
+## The follower mon (`follower_npc` in the ROM): the lead party mon's
+## overworld sprite trailing one cell behind the player. It respawns on a
+## map change, swaps when the lead changes, and never blocks a step.
+func _update_follower() -> void:
+	var objects: Gen3ObjectEvents = host.objects
+	var events: Gen3EventData = objects.events
+	if events.game != RomRegistry.HEARTSOUL:
+		return
+	var species: int = 0
+	for mon: Dictionary in events.party:
+		if not bool(mon.get("egg", false)):
+			species = int(mon.get("species", 0))
+			break
+	var player: Gen3ObjectEvents.ObjectEvent = host.avatar.object()
+	var map_key: String = "%d:%d" % [objects.camera.group, objects.camera.number]
+	if map_key != _follower_map:
+		_follower_map = map_key
+		_follower_slot = -1
+		_follower_trail.clear()
+	if species == 0:
+		if _follower_slot >= 0:
+			objects.objects[_follower_slot].active = false
+			_follower_slot = -1
+			_follower_species = 0
+		return
+	if _follower_slot < 0:
+		var template: Dictionary = Gen3ObjectEvents.EMPTY_TEMPLATE.duplicate()
+		template.merge({"local_id": 0xFE, "graphics_id": 0x4000 | species,
+			"movement_type": 0, "x": player.current.x - Gen3MapGrid.MAP_OFFSET,
+			"y": player.current.y - Gen3MapGrid.MAP_OFFSET}, true)
+		_follower_slot = objects.spawn(template, objects.camera.number, objects.camera.group)
+		if _follower_slot < 0:
+			return
+		objects.objects[_follower_slot].is_follower = true
+		_follower_species = species
+		_follower_trail = [player.current]
+		return
+	var follower: Gen3ObjectEvents.ObjectEvent = objects.objects[_follower_slot]
+	if species != _follower_species:
+		_follower_species = species
+		objects.set_graphics_id(follower, 0x4000 | species)
+	if _follower_trail.is_empty() or _follower_trail[0] != player.current:
+		_follower_trail.push_front(player.current)
+		while _follower_trail.size() > 2:
+			_follower_trail.pop_back()
+		if _follower_trail.size() > 1 and follower.current != _follower_trail[1]:
+			Gen3ObjectEvents.move_to_map_coords(follower, _follower_trail[1])
+			var step: Vector2i = player.current - follower.current
+			Gen3ObjectEvents.set_direction(follower,
+				Gen3ObjectEvents.Direction.EAST if step.x > 0 else Gen3ObjectEvents.Direction.WEST \
+				if step.x < 0 else Gen3ObjectEvents.Direction.SOUTH if step.y > 0 \
+				else Gen3ObjectEvents.Direction.NORTH)
 
 
 func picture() -> Image:
