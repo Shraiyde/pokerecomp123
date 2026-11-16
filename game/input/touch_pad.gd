@@ -23,6 +23,11 @@ var _layout: PokeTouchLayout = PokeTouchLayout.new()
 ## Whether a caller handed one over. The settings preview edits the live layout
 ## object, so entering the tree must not swap it for the stored one.
 var _layout_given: bool = false
+## Measure against the whole viewport instead of the safe area. The GBA skin
+## screen's buttons sit on art that fills the viewport edge to edge, so the
+## safe-area insets the launcher screens subtract would shift every anchor
+## off the drawn button. Off everywhere else, where the insets are right.
+var use_full_rect_area: bool = false
 var _edit_mode: bool = false
 ## Touch index to the [InputMap] action it is on, which is one of the eight or a
 ## mod's own. A finger sliding off one button onto another swaps which, so the
@@ -88,6 +93,8 @@ func is_editing() -> bool:
 ## every rect, hit test and drag is measured from it.
 func area() -> Rect2:
 	var unit: float = Gen2LauncherUI.point_scale(self)
+	if use_full_rect_area:
+		return Rect2(Vector2.ZERO, size / unit)
 	var window: Window = get_window()
 	var insets: Dictionary = Gen2LauncherUI.safe_area_insets(window)
 	var viewport: Vector2 = window.get_visible_rect().size if window != null else size
@@ -196,10 +203,14 @@ func _pointer(index: int, point: Vector2, pressed: bool) -> void:
 		_edit_pointer(index, point, pressed)
 		return
 	if pressed:
-		var action: StringName = action_at(point)
-		if String(action).is_empty():
-			return
-		_touches[index] = action
+		# A touch that lands on no button yet — the joystick's dead centre
+		# is the usual one — is still a touch: record it with no action, so
+		# the drag that follows can resolve it instead of being ignored.
+		# This matters most when a second finger (B) is already down: a
+		# re-planted thumb that lands in the dead centre must still be
+		# tracked, or the drag that follows is dropped and the player
+		# cannot move while B is held.
+		_touches[index] = action_at(point)
 		_apply_held()
 		get_viewport().set_input_as_handled()
 		return
@@ -231,6 +242,8 @@ func _apply_held() -> void:
 	var wanted: Dictionary = {}
 	for index: int in _touches:
 		var action: StringName = _touches[index]
+		if String(action).is_empty():
+			continue
 		wanted[action] = int(wanted.get(action, 0)) + 1
 	for action: StringName in _held:
 		if not wanted.has(action):
@@ -287,11 +300,14 @@ func _draw() -> void:
 		return
 	var alpha: float = _layout.opacity
 	var placing: StringName = orientation()
-	_draw_cross(_layout.group_rect(PokeTouchLayout.GROUP_PAD, rect, placing), alpha)
+	if _layout.joystick:
+		_draw_joystick(_layout.group_rect(PokeTouchLayout.GROUP_PAD, rect, placing), alpha)
+	else:
+		_draw_cross(_layout.group_rect(PokeTouchLayout.GROUP_PAD, rect, placing), alpha)
 	var rects: Dictionary = _layout.button_rects(rect, placing)
 	for button: int in [PokeButton.A, PokeButton.B]:
 		_draw_round(rects[button], PokeButton.label(button), alpha, _is_held(button))
-	for button: int in [PokeButton.SELECT, PokeButton.START]:
+	for button: int in [PokeButton.L, PokeButton.R, PokeButton.SELECT, PokeButton.START]:
 		_draw_pill(rects[button], PokeButton.label(button), alpha, _is_held(button))
 	var mod_rects: Dictionary = _layout.mod_button_rects(rect, placing)
 	for action: StringName in mod_rects:
@@ -301,6 +317,28 @@ func _draw() -> void:
 	if _edit_mode:
 		for group: StringName in _placeable_groups():
 			draw_rect(_layout.group_rect(group, rect, placing), EDIT_TINT, false, BORDER_WIDTH)
+
+
+## The joystick: a circle the thumb slides in, with a dot that follows the
+## held direction. The hit area is the whole circle; direction reads by
+## dominant axis from the centre, so sliding the thumb steers.
+func _draw_joystick(rect: Rect2, alpha: float) -> void:
+	var radius: float = minf(rect.size.x, rect.size.y) * 0.5
+	var centre: Vector2 = rect.get_center()
+	var fill: Color = Color(0, 0, 0, 0) if _layout.outline_only else _tint(FILL, alpha)
+	draw_circle(centre, radius, fill)
+	draw_arc(centre, radius, 0.0, TAU, 48, _tint(BORDER, alpha), BORDER_WIDTH * 2.0, true)
+	var held_dir: int = PokeButton.NONE
+	for button: int in PokeButton.DIRECTIONS:
+		if _is_held(button):
+			held_dir = button
+			break
+	if held_dir != PokeButton.NONE:
+		var step: Vector2 = Vector2(PokeButton.vector(held_dir))
+		var dot_centre: Vector2 = centre + step * radius * 0.5
+		draw_circle(dot_centre, radius * 0.22, _tint(FILL_PRESSED, alpha))
+	else:
+		draw_circle(centre, radius * 0.14, _tint(BORDER, alpha))
 
 
 ## The cross, as one horizontal and one vertical bar. The held arm is filled
@@ -342,17 +380,18 @@ func _draw_rounded_box(rect: Rect2, fill: Color, border: Color = Color.TRANSPARE
 
 func _draw_round(rect: Rect2, text: String, alpha: float, pressed: bool) -> void:
 	var radius: float = rect.size.x * 0.5
-	draw_circle(rect.get_center(), radius, _tint(FILL_PRESSED if pressed else FILL, alpha))
-	draw_circle(rect.get_center(), radius, _tint(BORDER, alpha), false, BORDER_WIDTH)
+	var fill: Color = Color(0, 0, 0, 0) if _layout.outline_only else _tint(FILL_PRESSED if pressed else FILL, alpha)
+	draw_circle(rect.get_center(), radius, fill)
+	draw_arc(rect.get_center(), radius, 0.0, TAU, 48, _tint(BORDER, alpha), BORDER_WIDTH * 2.0, true)
 	_draw_label(rect, text, alpha, radius * 0.9)
 
 
 func _draw_pill(rect: Rect2, text: String, alpha: float, pressed: bool) -> void:
 	var radius: float = rect.size.y * 0.5
 	var box := StyleBoxFlat.new()
-	box.bg_color = _tint(FILL_PRESSED if pressed else FILL, alpha)
+	box.bg_color = Color(0, 0, 0, 0) if _layout.outline_only else _tint(FILL_PRESSED if pressed else FILL, alpha)
 	box.border_color = _tint(BORDER, alpha)
-	box.set_border_width_all(int(BORDER_WIDTH))
+	box.set_border_width_all(int(BORDER_WIDTH * 2.0))
 	box.set_corner_radius_all(int(radius))
 	draw_style_box(box, rect)
 	_draw_label(rect, text, alpha, rect.size.y * 0.52)

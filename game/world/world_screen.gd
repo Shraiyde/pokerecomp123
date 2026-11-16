@@ -218,6 +218,8 @@ var _hall_of_fame_host: Gen2HallOfFameScreen = null
 ## link record sign. The Colosseum runs through the battle host instead.
 var _link_host: Gen2LinkScreen = null
 var _link_music_stopped: bool = false
+## The network cable's host/join screen, open from the START menu's LINK row.
+var _network_link_host: Gen2NetworkLinkScreen = null
 ## The peer a Colosseum battle is being fought against, for the record
 ## `AddLastLinkBattleToLinkRecord` writes when it ends.
 var _link_battle_peer: Dictionary = {}
@@ -890,6 +892,13 @@ func _process(delta: float) -> void:
 	_apply_pass_fraction(_frame_clock.remainder())
 	_refresh_frame_rate()
 	_advance_day_cycle(delta)
+	## A network cable is pumped once a drawn frame, so a peer's hello, a
+	## heartbeat and a dropped socket are all noticed on the next frame rather
+	## than on the next link call. A save-slot cable has nothing to pump.
+	if _world != null and _world.state != null:
+		var transport: Gen2LinkTransport = _world.state.link_transport()
+		if transport is Gen2NetworkLinkTransport:
+			(transport as Gen2NetworkLinkTransport).poll()
 	## Every drawn frame rather than every hardware frame: above sixty a drawn
 	## frame can carry no hardware one, and a screen opened by the press that
 	## drawn frame served would show the map around it until the next.
@@ -7203,6 +7212,33 @@ func _open_link_screen(screen_mode: int) -> bool:
 	return true
 
 
+## The START menu's LINK row: host a room or join one with its code. The
+## screen installs the network transport; closing it leaves the cable in
+## place, so the player walks to the cable club and trades on it.
+func _open_network_link_screen() -> bool:
+	if _network_link_host != null or _world == null or _data == null:
+		return false
+	var host := Gen2NetworkLinkScreen.new()
+	host.set_context(
+		_world, _selected_runtime_save() if _injected_save == null \
+			else _injected_save
+	)
+	host.closed.connect(_on_network_link_screen_closed)
+	_network_link_host = host
+	_screen.display(host)
+	_refresh_labels()
+	return true
+
+
+func _on_network_link_screen_closed() -> void:
+	var host: Gen2NetworkLinkScreen = _network_link_host
+	_network_link_host = null
+	if host != null:
+		Gen2Screen.drop(host)
+	_close_faded_menu(func() -> void:
+		_refresh_labels())
+
+
 ## `Gen2ToGen2LinkComms`' `PlayMusic MUSIC_NONE`; `MAPSETUP_LINKRETURN` restores the room's.
 func _on_link_music(music: int) -> void:
 	_link_music_stopped = _link_music_stopped or music == Gen2EvolutionScreen.MUSIC_NONE
@@ -7577,6 +7613,9 @@ func _enter_start_menu_row(kind: StringName, id: StringName) -> void:
 			## console exactly as it went in.
 			if is_inside_tree():
 				get_tree().change_scene_to_file.call_deferred(LAUNCHER_SCENE)
+			return
+		Gen2WorldStartMenu.ITEM_LINK:
+			_open_network_link_screen()
 			return
 	_refresh_labels()
 

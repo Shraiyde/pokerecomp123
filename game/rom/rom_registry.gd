@@ -123,8 +123,7 @@ const BY_SHA1: Dictionary = {
 		"title": "Heart & Soul",
 		"revision": "hns-coop-114",
 		"generation": GEN3,
-		"playable": false,
-		"dev": true,
+		"playable": true,
 		"size": 33554432,
 	},
 }

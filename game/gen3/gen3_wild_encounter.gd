@@ -7,8 +7,8 @@ const NEW_METATILE_ODDS: int = 60 # AllowWildCheckOnNewMetatile.
 const BIKE_FLAGS: int = Gen3PlayerAvatar.Flag.MACH_BIKE | Gen3PlayerAvatar.Flag.ACRO_BIKE
 const BRIDGES: Dictionary = { # `MetatileBehavior_IsBridgeOverWater` and Ruby's `_IsBridge`; FireRed's is a stub.
 	&"ruby": [0x70, 0x71, 0x72, 0x73], &"firered": [], &"emerald": [0x70, 0x71, 0x72, 0x73, 0x7C, 0x7D, 0x7E, 0x7F]}
-const FLUTE_FLAGS: Dictionary = {&"ruby": [0x84D, 0x84E], &"firered": [0x803, 0x804], &"emerald": [0x8AD, 0x8AE]} # `FLAG_SYS_ENC_UP_ITEM`, `_DOWN_ITEM`.
-const ALTERING_CAVE_VAR: Dictionary = {&"firered": 0x4024, &"emerald": 0x403E}
+const FLUTE_FLAGS: Dictionary = {&"ruby": [0x84D, 0x84E], &"sapphire": [0x84D, 0x84E], &"firered": [0x803, 0x804], &"leafgreen": [0x803, 0x804], &"emerald": [0x8AD, 0x8AE], &"heart_soul": [0x862, 0x863]} # `FLAG_SYS_ENC_UP_ITEM`, `_DOWN_ITEM`, keyed by GAME: H&S `SYS_FLAGS + 0x2/0x3` (`flags_hns.h:1229-1230`).
+const ALTERING_CAVE_VAR: Dictionary = {&"firered": 0x4024, &"emerald": 0x403E} # Keyed by GAME; H&S has no Altering Cave, so it has no entry — `_info` only reads it when `.has(game)`.
 const SOOTOPOLIS: Vector2i = Vector2i(0, 7)
 const LEGENDARIES_IN_SOOTOPOLIS: int = 0x53
 const ENCOUNTER_TYPE_SHIFT: int = 24 # METATILE_ATTRIBUTE_ENCOUNTER_TYPE.
@@ -78,7 +78,7 @@ func _standard(map: Vector2i, behavior: int, previous: int, avatar_flags: int) -
 	if encounters and not water:
 		return _attempt("land", map, behavior, previous, avatar_flags)
 	if encounters and water or avatar_flags & Gen3PlayerAvatar.Flag.SURFING and behavior in BRIDGES[_engine]:
-		if _engine == &"emerald" and map == SOOTOPOLIS and _events.flag_get(LEGENDARIES_IN_SOOTOPOLIS):
+		if _events.game == RomRegistry.EMERALD and map == SOOTOPOLIS and _events.flag_get(LEGENDARIES_IN_SOOTOPOLIS):
 			return {}
 		return _attempt("surf", map, behavior, previous, avatar_flags)
 	return {}
@@ -142,7 +142,7 @@ func _cooldown_passed(encounter_rate: int) -> bool: # HandleWildEncounterCooldow
 
 
 func _flute() -> int: # ApplyFluteEncounterRateMod's two flags: above zero the White Flute, below it the Black.
-	var flags: Array = FLUTE_FLAGS[_engine]
+	var flags: Array = FLUTE_FLAGS[_events.game]
 	return 1 if _events.flag_get(int(flags[0])) else (-1 if _events.flag_get(int(flags[1])) else 0)
 
 
@@ -240,7 +240,7 @@ func _level(row: Dictionary) -> int: # ChooseWildMonLevel.
 
 
 func _allowed_by_repel(level: int) -> bool: # IsWildLevelAllowedByRepel.
-	if _events.var_get(int(Gen3FieldInput.FLAGS[_engine]["repel"])) == 0:
+	if _events.var_get(int(Gen3FieldInput.FLAGS[_events.game]["repel"])) == 0:
 		return true
 	for mon: Dictionary in _events.party:
 		if int(mon.get("hp", 0)) > 0 and not mon.get("egg", false):
@@ -255,8 +255,8 @@ func _keen_eye_refuses(level: int) -> bool: # IsAbilityAllowingEncounter.
 
 func _info(method: StringName, map: Vector2i) -> Dictionary: # GetCurrentMapWildMonHeaderId, which offsets Altering Cave's row by its set.
 	var variant: int = 0
-	if _data.world_encounter_variant_count(method, map.x, map.y) > 1 and ALTERING_CAVE_VAR.has(_engine):
-		variant = _events.var_get(int(ALTERING_CAVE_VAR[_engine]))
+	if _data.world_encounter_variant_count(method, map.x, map.y) > 1 and ALTERING_CAVE_VAR.has(_events.game):
+		variant = _events.var_get(int(ALTERING_CAVE_VAR[_events.game]))
 		variant = variant if variant < _data.world_encounter_variant_count(method, map.x, map.y) else 0
 	return _data.world_encounter(method, map.x, map.y, variant)
 

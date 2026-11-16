@@ -4,6 +4,11 @@ extends RefCounted
 enum State { STOPPED, RUNNING, DELAY, WAITING, NATIVE_WAIT, FAULT }
 
 const STACK_LIMIT: int = 19 # script.c::ScriptPush reserves stack[20]'s last slot.
+const VAR_RESULT: int = 0x800D # `gSpecialVar_Result`, what givemon reports into.
+const PARTY_SIZE: int = 6
+const MON_GIVEN_TO_PARTY: int = 0 # pokemon.h's `MON_GIVEN_TO_PARTY`; to the PC is 1, impossible is 2.
+const MON_CANT_GIVE: int = 2
+const ROM_SIZE: int = 0x02000000 # H&S ROM size; `requests_effects=1` stores the pointer plus this (event.inc's callnative).
 const WARP_COMMANDS: Array[String] = ["warp", "warpsilent", "warpdoor", "warphole", "warpteleport",
 	"warpmossdeepgym", "warpspinenter", "warpwhitefade"]
 const OBJECT_COMMANDS: Array[String] = ["removeobject", "removeobjectat", "removeobject_at",
@@ -152,6 +157,8 @@ func _execute(row: Dictionary, at: int, command_handler: Callable) -> bool:
 		return true
 	if command in ["setflag", "clearflag", "checkflag", "incrementgamestat", "random"]:
 		return _event_command(command, args)
+	if command == "callnative":
+		return _callnative(args)
 	return _value_command(command, args)
 
 
@@ -211,6 +218,74 @@ func _event_command(command: String, args: Array) -> bool:
 				return false
 			_events.var_set(0x800D, _events.random.next() % limit)
 	return true
+
+
+func _callnative(args: Array) -> bool: # `callnative` (0x23): the function pointer plus its macro's trailing argument bytes.
+	if args.is_empty():
+		return false
+	var func_ptr: int = int(args[0])
+	if func_ptr >= 0x08000000 + ROM_SIZE: # `requests_effects=1` stores the pointer plus the ROM size; see Gen3Script.instruction.
+		func_ptr -= ROM_SIZE
+	match func_ptr:
+		0x0820CD59: return _createmon(args) # ScrCmd_createmon.
+		0x0812DC11: return true # UpdateFollowingPokemon: no follower model yet; the starter script only needs it to pass.
+		0x08160895: return true # ShowHelpInfoWindow: no help-window UI; the clock trigger only needs it to pass.
+		0x081F1DA5: return true # ObtainItemRandomize_NativeCall: no randomizer model; the item in VAR_0x8000 is left unchanged for additem.
+		_: return false
+
+
+func _createmon(args: Array) -> bool: # `ScrCmd_createmon`: header bytes are operands 1-10; the flag-dependent halfwords follow in the script stream.
+	if args.size() < 11:
+		return false
+	var side: int = int(args[1])
+	var slot: int = int(args[2])
+	var species: int = _events.var_get(int(args[3]) | (int(args[4]) << 8))
+	var level: int = _events.var_get(int(args[5]) | (int(args[6]) << 8))
+	var flags: int = int(args[7]) | (int(args[8]) << 8) | (int(args[9]) << 16) | (int(args[10]) << 24)
+	# The importer consumes only the 10 header bytes, so `offset` still points at the first flag-dependent halfword; skip one per set flag bit to land on the next instruction.
+	offset += 2 * _popcount(flags)
+	if side != 0:
+		return false # No enemy-party model; fault honestly instead of pretending the mon exists.
+	var target: int = _events.party.size() if slot >= PARTY_SIZE else slot
+	if species <= 0 or _data.species(species).is_empty() or level < 1 or level > 100 or target >= PARTY_SIZE:
+		_events.var_set(VAR_RESULT, MON_CANT_GIVE)
+		return true
+	var mon: Dictionary = _gift_mon(species, level)
+	if target < _events.party.size():
+		_events.party[target] = mon
+	else:
+		_events.party.append(mon)
+	_events.var_set(VAR_RESULT, MON_GIVEN_TO_PARTY)
+	return true
+
+
+func _gift_mon(species: int, level: int) -> Dictionary: # A gift mon's defaults: random IVs, no EVs, the level-up moves at or below `level`.
+	var info: Dictionary = _data.species(species)
+	var hp_iv: int = _events.random.next() % 32
+	var base_hp: int = int((info.get("stats", {}) as Dictionary).get("hp", 0))
+	var moves: Array[int] = []
+	for row: Dictionary in _data.learnset(species):
+		var learn_level: int = int(row.get("level", 0))
+		if learn_level == 0 or learn_level > level:
+			continue
+		var move: int = int(row.get("move", 0))
+		if move == 0 or move in moves:
+			continue
+		moves.append(move)
+		if moves.size() > 4:
+			moves.pop_front()
+	return {"species": species, "nickname": String(info.get("name", "")), "level": level,
+		"moves": moves, "egg": false, "hp": ((2 * base_hp + hp_iv) * level) / 100 + level + 10,
+		"personality": (_events.random.next() << 16) | _events.random.next(), "ot_id": 0,
+		"status": 0, "item": 0}
+
+
+static func _popcount(value: int) -> int:
+	var count: int = 0
+	while value != 0:
+		count += value & 1
+		value >>= 1
+	return count
 
 
 func _value_command(command: String, args: Array) -> bool:

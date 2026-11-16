@@ -53,7 +53,7 @@ const FRLG_NO_RUNNING: int = 0x0A
 const MB_ROCK_STAIRS: int = 0x2A
 const MAP_TYPE_INDOOR: int = 8
 const FLAG_SYS_B_DASH: Dictionary = {
-	&"ruby": 0x860, &"sapphire": 0x860, &"firered": 0x82F, &"leafgreen": 0x82F, &"emerald": 0x8C0,
+	&"ruby": 0x860, &"sapphire": 0x860, &"firered": 0x82F, &"leafgreen": 0x82F, &"emerald": 0x8C0, &"heart_soul": 0x895,
 }
 const GAME_STAT_JUMPED_DOWN_LEDGES: int = 43
 const LOCALID_FARAWAY_ISLAND_MEW: int = 1

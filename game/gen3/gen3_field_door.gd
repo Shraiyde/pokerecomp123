@@ -7,6 +7,8 @@ const FRAME_COUNT: int = 3
 const FRAME_TIME: int = 4
 const FRAME_TILES: Array[int] = [8, 4] # Hoenn's and FRLG's small door.
 const TILES_TOTAL: int = 1024
+const DOOR_TILE_START_HNS: int = 434 # field_door.c's `DOOR_TILE_START_HNS`.
+const BIG_METATILES_HNS: Array[int] = [662, 685] # The only size-2 rows of H&S's `sDoorAnimGraphicsTable` (ROM 0x5ee9d0).
 const CLOSED: int = -1
 const SOUNDS: Array[String] = ["door", "sliding_door", "repel"] # `DOOR_SOUND_*`; Ruby and FRLG have the first two.
 const MULTI_CORRIDOR := Vector2i(26, 16) # Emerald's Battle Tower corridor, whose doors open in pairs.
@@ -85,11 +87,22 @@ func _start(cell: Vector2i, opening: bool) -> bool:
 func _door_at(cell: Vector2i) -> Dictionary:
 	if not _input.is_door(_camera.grid.behavior_at(cell.x, cell.y) & 0xFF):
 		return {}
-	return _camera.data.world_door(_camera.grid.metatile_id_at(cell.x, cell.y))
+	var metatile: int = _camera.grid.metatile_id_at(cell.x, cell.y)
+	var row: Dictionary = _camera.data.world_door(metatile)
+	if not row.is_empty() and _camera.data.id == RomRegistry.HEARTSOUL:
+		# H&S doors are FRLG-style (`LAYOUT_USES_FRLG_DOORS(HNS)`), and the
+		# importer reads the big flag from struct padding, so it is always
+		# false: only these two metatiles are big doors in the ROM's table.
+		row["big"] = metatile in BIG_METATILES_HNS
+	return row
 
 
-func _offsets(row: Dictionary, opening: bool) -> Array[int]: # Emerald closes a big door with the small frames: `sBigDoorCloseAnimFrames` has no caller. FRLG's has one.
-	var frlg: bool = _input.engine == &"firered"
+func _frlg_doors() -> bool: # H&S draws doors FRLG's way, not Emerald's.
+	return _input.engine == &"firered" or _camera.data.id == RomRegistry.HEARTSOUL
+
+
+func _offsets(row: Dictionary, opening: bool) -> Array[int]: # Emerald closes a big door with the small frames: `sBigDoorCloseAnimFrames` has no caller. FRLG's has one; H&S follows FRLG.
+	var frlg: bool = _frlg_doors()
 	var big: bool = row["big"] and (opening or frlg)
 	var step_bytes: int = FRAME_TILES[int(frlg)] * (2 if big else 1) * GbaTiles.TILE_BYTES
 	var open_frames: Array[int] = [CLOSED, 0, step_bytes, step_bytes * 2]
@@ -112,10 +125,13 @@ func _draw_at(row: Dictionary, offset: int, cell: Vector2i) -> void:
 		for at: Vector2i in cells:
 			_vram.door_cells.erase(at)
 		return
-	var frlg: bool = _input.engine == &"firered"
-	var count: int = TILES_TOTAL - (16 if row["big"] and not frlg else 8)
+	var frlg: bool = _frlg_doors()
+	var hns: bool = _camera.data.id == RomRegistry.HEARTSOUL
+	# H&S door frames live at VRAM tile 434, eight tiles however big the door;
+	# the other games park them at the end of VRAM, sixteen tiles for a big door.
+	var count: int = DOOR_TILE_START_HNS if hns else TILES_TOTAL - (16 if row["big"] and not frlg else 8)
 	var bytes: PackedByteArray = row["bytes"]
-	var size: int = (TILES_TOTAL - count) * GbaTiles.TILE_BYTES
+	var size: int = 8 * GbaTiles.TILE_BYTES if hns else (TILES_TOTAL - count) * GbaTiles.TILE_BYTES
 	_vram.write_tiles(count, bytes.slice(offset, offset + size))
 	var palettes: Array = row["palettes"]
 	for index: int in cells.size():
@@ -127,9 +143,9 @@ func _draw_at(row: Dictionary, offset: int, cell: Vector2i) -> void:
 
 func _cells(row: Dictionary, cell: Vector2i) -> Array[Vector2i]: # FRLG's 1x1 door is one cell; the rest run top then bottom, a big door's right column last.
 	var top: Vector2i = cell - Vector2i(0, 1)
-	if _input.engine == &"firered" and not row["big"]:
+	if _frlg_doors() and not row["big"]:
 		return [cell]
-	if _input.engine != &"firered" and row["big"]:
+	if not _frlg_doors() and row["big"]:
 		return [top, cell, top + Vector2i.RIGHT, cell + Vector2i.RIGHT]
 	return [top, cell]
 

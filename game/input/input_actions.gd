@@ -84,6 +84,14 @@ const DEFAULTS: Dictionary = {
 		{"kind": KIND_KEY, "code": KEY_ESCAPE},
 		{"kind": KIND_PAD_BUTTON, "code": JOY_BUTTON_B},
 	],
+	PokeButton.L: [
+		{"kind": KIND_KEY, "code": KEY_Q},
+		{"kind": KIND_PAD_BUTTON, "code": JOY_BUTTON_LEFT_SHOULDER},
+	],
+	PokeButton.R: [
+		{"kind": KIND_KEY, "code": KEY_E},
+		{"kind": KIND_PAD_BUTTON, "code": JOY_BUTTON_RIGHT_SHOULDER},
+	],
 	PokeButton.START: [
 		{"kind": KIND_KEY, "code": KEY_ENTER},
 		{"kind": KIND_KEY, "code": KEY_KP_ENTER},

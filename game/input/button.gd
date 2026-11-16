@@ -1,9 +1,10 @@
 class_name PokeButton
 extends RefCounted
 
-## The eight buttons the hardware had. Every screen speaks this vocabulary and
-## nothing else; what a device does to produce one is [PokeInputActions]'
-## business, and which device the player is holding is [PokeInputDevice]'s.
+## The eight buttons the hardware had, and the GBA's two shoulders. Every
+## screen speaks this vocabulary and nothing else; what a device does to
+## produce one is [PokeInputActions]' business, and which device the player is
+## holding is [PokeInputDevice]'s.
 
 const NONE: int = 0
 const UP: int = 1
@@ -14,10 +15,12 @@ const A: int = 5
 const B: int = 6
 const START: int = 7
 const SELECT: int = 8
+const L: int = 9
+const R: int = 10
 
-## Source order: the d-pad, then the face buttons, then START and SELECT. Remap
-## UI and touch layouts both list buttons in this order.
-const ALL: Array[int] = [UP, DOWN, LEFT, RIGHT, A, B, START, SELECT]
+## Source order: the d-pad, then the face buttons, then the shoulders, then
+## START and SELECT. Remap UI and touch layouts both list buttons in this order.
+const ALL: Array[int] = [UP, DOWN, LEFT, RIGHT, A, B, L, R, START, SELECT]
 const DIRECTIONS: Array[int] = [UP, DOWN, LEFT, RIGHT]
 
 const ACTIONS: Dictionary = {
@@ -27,6 +30,8 @@ const ACTIONS: Dictionary = {
 	RIGHT: &"gen2_right",
 	A: &"gen2_a",
 	B: &"gen2_b",
+	L: &"gen2_l",
+	R: &"gen2_r",
 	START: &"gen2_start",
 	SELECT: &"gen2_select",
 }
@@ -38,6 +43,8 @@ const LABELS: Dictionary = {
 	RIGHT: "Right",
 	A: "A",
 	B: "B",
+	L: "L",
+	R: "R",
 	START: "START",
 	SELECT: "SELECT",
 }

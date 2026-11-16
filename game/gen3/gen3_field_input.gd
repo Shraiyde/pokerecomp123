@@ -20,17 +20,26 @@ const GAME_STAT_ENTERED_HOF: int = 10
 const STATUS_POISONED: int = 0x88 # STATUS1_POISON | STATUS1_TOXIC_POISON.
 const SIGN_INHIBIT_FRAMES: int = 6 # script.c::SetWalkingIntoSignVars.
 const HIDDEN_ITEM_KINDS: Array[int] = [5, 6, 7]
-const SAFARI_STEPS: Dictionary = {&"ruby": 500, &"firered": 600, &"emerald": 500}
+const SAFARI_STEPS: Dictionary = {&"ruby": 500, &"sapphire": 500, &"firered": 600, &"leafgreen": 600, &"emerald": 500, &"heart_soul": 1000} # `SAFARI_ZONE_STEPS_HNS`, `pokehns/include/safari_zone.h:9`.
 const SS_TIDAL_MAX_STEPS: int = 205
-const POISON_PERIOD: Dictionary = {&"ruby": 4, &"firered": 5, &"emerald": 4}
+const POISON_PERIOD: Dictionary = {&"ruby": 4, &"firered": 5, &"emerald": 4} # H&S keeps Emerald's 4 (`UpdatePoisonStepCounter` does `% 4`).
 
-const FLAGS: Dictionary = { # `FLAG_HIDDEN_ITEMS_START`, badges, `FLAG_SYS_*` and step-counter `VAR_*`.
+const FLAGS: Dictionary = { # `FLAG_HIDDEN_ITEMS_START`, badges, `FLAG_SYS_*` and step-counter `VAR_*`, keyed by GAME: H&S ids come from `pokehns/include/constants/flags_hns.h`, not vanilla Emerald.
 	&"ruby": {"hidden": 0x258, "pokemon": 0x800, "pokedex": 0x801, "pokenav": 0x802, "surf": 0x80B, "waterfall": 0x80E, "dive": 0x80D, "safari": 0x82C, "cruise": 0x82D,
+		"repel": 0x4021, "friendship": 0x402A, "poison": 0x402B, "cruise_steps": 0x404A},
+	&"sapphire": {"hidden": 0x258, "pokemon": 0x800, "pokedex": 0x801, "pokenav": 0x802, "surf": 0x80B, "waterfall": 0x80E, "dive": 0x80D, "safari": 0x82C, "cruise": 0x82D,
 		"repel": 0x4021, "friendship": 0x402A, "poison": 0x402B, "cruise_steps": 0x404A},
 	&"firered": {"hidden": 0x3E8, "pokemon": 0x828, "pokedex": 0x829, "surf": 0x824, "waterfall": 0x826, "safari": 0x800, "cruise": 0x802,
 		"repel": 0x4020, "friendship": 0x4021, "poison": 0x4022},
+	&"leafgreen": {"hidden": 0x3E8, "pokemon": 0x828, "pokedex": 0x829, "surf": 0x824, "waterfall": 0x826, "safari": 0x800, "cruise": 0x802,
+		"repel": 0x4020, "friendship": 0x4021, "poison": 0x4022},
 	&"emerald": {"hidden": 0x1F4, "pokemon": 0x860, "pokedex": 0x861, "pokenav": 0x862, "surf": 0x86B, "waterfall": 0x86E, "dive": 0x86D, "safari": 0x88C, "cruise": 0x88D,
 		"repel": 0x4021, "friendship": 0x402A, "poison": 0x402B, "cruise_steps": 0x404A},
+	&"heart_soul": {"hidden": 0xEA, "pokemon": 0x890, "pokedex": 0x891, "pokenav": 0x892, "surf": 0x883, "waterfall": 0x887, "dive": 0x886, "safari": 0x860, "cruise": 0,
+		"repel": 0x4021, "friendship": 0x402A, "poison": 0x402B, "cruise_steps": 0x404A},
+	# H&S row sources (`flags_hns.h`, `SYS_FLAGS` 0x860): hidden `FLAG_HIDDEN_ITEMS_START` 0xEA; pokemon/pokedex/pokenav `SYS_FLAGS + 0x30/0x31/0x32`;
+	# surf `FLAG_BADGE04_GET`, dive `FLAG_BADGE07_GET`, waterfall `FLAG_BADGE08_GET` (`src/field_move.c` `IsFieldMoveUnlocked_*`); safari `FLAG_SYS_SAFARI_MODE`;
+	# cruise 0 — no cruise mode in H&S (`FLAG_SYS_CRUISE_MODE` is 0; S.S. Aqua state is `VAR_SSAQUA_STATE` 0x408B); repel/friendship/poison/cruise_steps unchanged (`vars.h`).
 }
 const HOENN_METATILES: Dictionary = {0x86: "tv", 0x83: "pc", 0x8B: "closed_sootopolis_door", 0x84: "cable_box_results",
 	0x87: "pokeblock_feeder", 0x8C: "trick_house_door", 0x85: "region_map", 0x8E: "running_shoes_manual",
@@ -71,13 +80,14 @@ const FRLG_SEAFOAM_ON_FOOT: Array[Vector2i] = [Vector2i(1, 86), Vector2i(1, 87)]
 const HOENN_DIVEABLE: Array[int] = [0x11, 0x12, 0x14]
 const HOENN_UNABLE_TO_EMERGE: Array[int] = [0x19, 0x2A]
 const FRLG_STAIR_EXITS: Dictionary = {0x6C: 3, 0x6E: 3, 0x6D: 4, 0x6F: 4} # Up/down-right face west, up/down-left east.
-const HOENN_ARROW_WARPS: Array = [[0x65, 0x6D, 0x1C], [0x64, 0x1B], [0x63], [0x62]]
+const HOENN_ARROW_WARPS: Array = [[0x65, 0x6D, 0x1C], [0x64, 0x1B, 0xF1], [0x63], [0x62]]
 const FRLG_ARROW_WARPS: Array = [[0x65], [0x64], [0x63], [0x62]]
-const STORY_CALLS: Array = [ # field_specials.c's `ShouldDo*Call`: flag, step counter var, steps, script.
+const STORY_CALLS: Array = [ # field_specials.c's `ShouldDo*Call`: flag, step counter var, steps, script. Vanilla Emerald only: H&S defines every `FLAG_ENABLE_*_CALL` as 0 (`flags_hns.h`), so the ROM never makes these calls, and these Emerald ids (0x72–0x8A) are H&S hide flags (`FLAG_HIDE_*`) — running them for H&S would fire on unrelated NPC flags. The step vars 0x40F2–0x40F6 are `VAR_UNUSED_HNS_*` (`vars_hns.h`).
 	[0x88, 0x40F2, 250, "wally_call"], [0x8A, 0x40F3, 10, "scott_fortree_call"],
 	[0x72, 0x40F5, 10, "scott_frontier_call"], [0x80, 0x40F4, 250, "roxanne_call"], [0x75, 0x40F6, 250, "rival_rayquaza_call"]]
 
 var engine: StringName
+var game: StringName # The ROM's game id; ROM flag/var ids are keyed by this, engine UI constants by `engine`.
 var flags: Dictionary
 var safari_steps: int = 0 # `sSafariZoneStepCounter`, which is not saved.
 var _events: Gen3EventData
@@ -86,7 +96,8 @@ var _events: Gen3EventData
 func _init(events: Gen3EventData) -> void:
 	_events = events
 	engine = ENGINES[events.game]
-	flags = FLAGS[engine]
+	game = events.game
+	flags = FLAGS[game]
 
 
 func arrow_warps(direction: int) -> Array:
@@ -188,7 +199,7 @@ func step_script(map_type: int, forced: bool, requests: Array) -> String: # TryS
 	if not forced or engine == &"ruby":
 		if _poison_step(map_type, requests):
 			return "field_poison"
-		var call: String = _story_call(map_type) if engine == &"emerald" else ""
+		var call: String = _story_call(map_type) if game == RomRegistry.EMERALD else ""
 		if not call.is_empty():
 			return call
 	if _events.flag_get(flags["safari"]):
@@ -208,7 +219,7 @@ func repel_script(forced: bool) -> String: # UpdateRepelCounter; FireRed's calle
 
 func enter_safari() -> void: # EnterSafariMode's step count; balls belong to battle.
 	_events.flag_set(flags["safari"])
-	safari_steps = SAFARI_STEPS[engine]
+	safari_steps = SAFARI_STEPS[game]
 
 
 func exit_safari() -> void:

@@ -103,11 +103,11 @@ func _idle(menu: Gen3FieldStartMenu, frames: int) -> void:
 		menu.step([], [], false)
 
 
-## The list follows the flags, a hidden row keeps the cursor honest, and the callbacks leave as the cartridge's do.
+## The list hides the rows with no Gen 3 screen yet, a hidden row keeps the cursor honest, and the callbacks leave as the cartridge's do.
 func test_start_menu_rows_cursor_wrap_and_the_three_ways_out() -> void:
 	var events := Gen3EventData.new(RomRegistry.EMERALD)
 	var menu: Gen3FieldStartMenu = _start_menu(&"emerald", events)
-	assert_eq(menu._actions, ["bag", "player", "save", "option", "exit"] as Array[String])
+	assert_eq(menu._actions, ["save", "option", "exit"] as Array[String])
 	var early: Array = []
 	menu.step([PokeButton.DOWN], early, false)
 	assert_eq(early, [], "The window builds over frames before the task reads input.")
@@ -125,7 +125,7 @@ func test_start_menu_rows_cursor_wrap_and_the_three_ways_out() -> void:
 	assert_eq(menu._cursor, 0, "The closed menu remembers EXIT, and DOWN from it wraps to the top.")
 	assert_eq(menu.step([PokeButton.A], [], false), Gen3FieldStartMenu.FADE)
 	assert_eq(menu.step([], [], true), "", "The callback waits out the fade.")
-	assert_eq(menu.step([], [], false), "bag")
+	assert_eq(menu.step([], [], false), "save")
 	events.flag_set(int(Gen3FieldInput.FLAGS[&"emerald"]["safari"]))
 	menu.open(events)
 	assert_eq(menu._actions[0], Gen3FieldStartMenu.RETIRE)

@@ -27,6 +27,10 @@ const ITEM_SAVE: StringName = &"save"
 const ITEM_RESET: StringName = &"reset"
 const ITEM_OPTION: StringName = &"option"
 const ITEM_EXIT: StringName = &"exit"
+## Not the cartridge's. The network cable: host a room or join one with its
+## code, so the cable club trades and battles over the broker instead of a
+## save slot. It sits after OPTION and before EXIT, with the other additions.
+const ITEM_LINK: StringName = &"link"
 ## `STARTMENUITEM_QUIT`, the Bug Catching Contest's own row: it retires from the
 ## contest and is judged on what has been caught so far.
 const ITEM_QUIT: StringName = &"quit"
@@ -67,6 +71,7 @@ const SOURCE_ENTRIES: Array[Dictionary] = [
 	{"kind": ITEM_PLAYER, "label": "<PLAYER>", "available": true, "gate": &""},
 	{"kind": ITEM_SAVE, "label": "SAVE", "available": true, "gate": &""},
 	{"kind": ITEM_OPTION, "label": "OPTION", "available": true, "gate": &""},
+	{"kind": ITEM_LINK, "label": "LINK", "available": true, "gate": &""},
 	{"kind": ITEM_EXIT, "label": "EXIT", "available": true, "gate": &""},
 	## Four tiles, because the box only has seven: `GetMenuTextStartCoord` puts
 	## the first letter at column 12 and the frame's right edge is at 19, which
@@ -85,6 +90,7 @@ const GEN1_ENTRIES: Array[Dictionary] = [
 	{"kind": ITEM_PLAYER, "label": "<PLAYER>", "available": true, "gate": &""},
 	{"kind": ITEM_SAVE, "label": "SAVE", "available": true, "gate": &""},
 	{"kind": ITEM_OPTION, "label": "OPTION", "available": true, "gate": &""},
+	{"kind": ITEM_LINK, "label": "LINK", "available": true, "gate": &""},
 	{"kind": ITEM_EXIT, "label": "EXIT", "available": true, "gate": &""},
 	{"kind": ITEM_LAUNCHER, "label": "HOME", "available": true, "gate": &""},
 ]

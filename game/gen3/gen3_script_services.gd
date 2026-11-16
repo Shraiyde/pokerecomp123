@@ -8,7 +8,7 @@ const VAR_0X8004: int = 0x8004
 const PARTY_SIZE: int = 6
 const COMMANDS: Array[String] = ["additem", "removeitem", "checkitem", "checkitemspace", "checkitemtype",
 	"addpcitem", "checkpcitem", "addmoney", "removemoney", "checkmoney", "checkcoins", "addcoins", "removecoins",
-	"bufferspeciesname", "bufferleadmonspeciesname", "bufferpartymonnick", "bufferitemname", "bufferitemnameplural",
+	"bufferspeciesname", "buffermoncategory", "bufferleadmonspeciesname", "bufferpartymonnick", "bufferitemname", "bufferitemnameplural",
 	"buffermovename", "buffernumberstring", "bufferstdstring", "bufferstring", "checkplayergender", "getpartysize",
 	"checkpartymove", "checktrainerflag", "settrainerflag", "cleartrainerflag", "setrespawn", "setworldmapflag",
 	"comparestat"]
@@ -90,6 +90,7 @@ func _buffer(command: String, operands: Array) -> bool:
 	var text: String = ""
 	match command:
 		"bufferspeciesname": text = String(_data.species(value).get("name", ""))
+		"buffermoncategory": text = String(_data.dex_entry(value).get("category", ""))
 		"bufferleadmonspeciesname": text = _lead_species_name()
 		"bufferpartymonnick":
 			if value >= _events.party.size():

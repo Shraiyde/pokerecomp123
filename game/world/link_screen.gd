@@ -356,6 +356,9 @@ func _press_footer(button: int) -> bool:
 ## back as `wOtherPlayerLinkMode`, `LinkTradePlaceArrow` marks it and the two
 ## validity tests run before the question is asked.
 func _offer() -> void:
+	## The row this side offers goes out at once, so the peer's
+	## `choose_trade_slot` sees it; the partner's comes back from the transport.
+	_transport.set_local_trade_slot(_index)
 	_partner_choice = _transport_choice()
 	_incoming = _partner_mon(_partner_choice)
 	_message = []

@@ -329,6 +329,11 @@ class ObjectEvent:
 	var subsprite_table: int = 0
 	var subsprite_mode: int = Gen3ObjectSprites.Subsprites.OFF
 	var palette_num: int = 0
+	## The dynamic palette slot key this object owns (-1: none): a human NPC's
+	## palette tag, or 0x10000 + species for a MON NPC. Static-slot and
+	## special-slot objects own nothing. Tracked so the slot can be freed when
+	## the object despawns or re-skins, instead of leaking until the next warp.
+	var palette_key: int = -1
 	var off_screen: bool = false
 	var sprite_invisible: bool = false
 	## `triggerGroundEffectsOnMove`, which the next update's `DoGroundEffects_OnSpawn` consumes.
@@ -519,26 +524,163 @@ func _take_graphics(object: ObjectEvent, graphics_id: int) -> void:
 	object.anim.images = info.get("images", [])
 	object.inanimate = bool(info.get("inanimate", false))
 	object.palette_num = int(info.get("palette_slot", 0))
+	# The dynamic slot this object owned before the change, freed below when
+	# it no longer owns it and nothing else still uses it, so a re-skinned
+	# object does not leak its old palette.
+	var old_key: int = object.palette_key
+	object.palette_key = -1
 	# MON sprites (Pokemon overworld) use the dynamic tag 4388, which is not
 	# in the static object palette table. Load the species' overworld
 	# palette into a dynamic slot (12-15) keyed by species, so same-species
-	# NPCs share a slot and human NPCs keep slot 2. Falls back to the
-	# static slot when the palette is missing or slots are exhausted.
+	# NPCs share a slot. Falls back to the static slot when the palette is
+	# missing or slots are exhausted.
 	if camera.data.id == RomRegistry.HEARTSOUL and (graphics_id & 0x4000) != 0:
 		var pal: PackedByteArray = PackedByteArray(info.get("overworld_palette", []))
 		if pal.size() == 32:
 			var tag: int = 0x10000 + (graphics_id & 0x8FFF)
-			var slot: int = sprites.palette.sprite_index(tag)
-			if slot == 0xFF:
-				slot = sprites.palette.alloc_sprite(tag)
-				if slot != 0xFF:
-					sprites.palette.load(pal, Gen3Palette.OBJ_OFFSET + slot * 16)
+			var slot: int = _load_dynamic_palette(tag, pal)
 			if slot != 0xFF:
 				object.palette_num = slot & 0xF
+				object.palette_key = tag
+		if object.palette_key < 0:
+			# No standalone overworld palette (SPECIES_NONE, whose row
+			# carries the SUBSTITUTE tag instead of DYNAMIC): load the row's
+			# own tag, which is in the static palette table, rather than
+			# falling back to the stale paletteSlot and painting another
+			# NPC's colours.
+			var row_tag: int = int(info.get("palette_tag", Gen3ObjectSprites.PALETTE_TAG_NONE))
+			if row_tag != Gen3ObjectSprites.PALETTE_TAG_NONE and row_tag != 0x1124:
+				var row_pal: PackedByteArray = camera.data.world_object_palette(row_tag)
+				if row_pal.size() == 32:
+					var row_slot: int = _load_dynamic_palette(row_tag, row_pal)
+					if row_slot != 0xFF:
+						object.palette_num = row_slot & 0xF
+						object.palette_key = row_tag
+	# Human NPCs: the ROM never renders from the graphics info's
+	# `paletteSlot`. `CreateSprite` (sprite.c) sets `paletteNum` from the
+	# palette TAG, after `TrySetupObjectEventSprite` loads that tag
+	# (`LoadObjectEventPalette`): a tag already in the static set keeps its
+	# set slot, any other tag takes a free dynamic slot. Heart & Soul's
+	# `paletteSlot` values are stale (Elm's is 4, the officer's slot, while
+	# its tag is ELM_HNS; Scientist M's tag is NPC_1_HNS but its slot is 4),
+	# so trusting the slot paints most NPCs with another NPC's colours.
+	# Resolve by tag instead; the special slot (10) stays owned by
+	# `load_palette`, which patches that tag into it. Falls back to the
+	# static slot when the palette is missing or slots are exhausted.
+	if camera.data.id == RomRegistry.HEARTSOUL and (graphics_id & 0x4000) == 0 \
+			and int(info.get("palette_slot", 0)) != Gen3ObjectSprites.PALSLOT_NPC_SPECIAL:
+		var tag: int = int(info.get("palette_tag", Gen3ObjectSprites.PALETTE_TAG_NONE))
+		if tag == 0x1124:
+			# The one human-table row with the DYNAMIC tag (gfx 240, the
+			# follower template): the ROM loads the species palette for
+			# species = graphicsId & mask, i.e. MAGBY for id 240, via
+			# `LoadDynamicFollowerPalette`. No map template uses it, but the
+			# row must not fall back to paletteSlot 2 if one ever does.
+			var species: int = graphics_id & 0x8FFF
+			var mon_info: Dictionary = camera.data.world_species_overworld_graphics(species)
+			var mon_pal: PackedByteArray = PackedByteArray(mon_info.get("overworld_palette", []))
+			if mon_pal.size() == 32:
+				var mon_tag: int = 0x10000 + species
+				var mon_slot: int = _load_dynamic_palette(mon_tag, mon_pal)
+				if mon_slot != 0xFF:
+					object.palette_num = mon_slot & 0xF
+					object.palette_key = mon_tag
+		elif tag != Gen3ObjectSprites.PALETTE_TAG_NONE:
+			var sets: Array = camera.data.world_object_palette_sets().get("tag_sets", [])
+			var static_tags: Array = sets[sprites.reflection_type] \
+				if sprites.reflection_type < sets.size() else []
+			var static_slot: int = -1
+			for slot: int in static_tags.size():
+				if int(static_tags[slot]) == tag:
+					static_slot = slot
+					break
+			if static_slot >= 0:
+				object.palette_num = static_slot
+			else:
+				var pal: PackedByteArray = camera.data.world_object_palette(tag)
+				if pal.size() == 32:
+					var slot: int = _load_dynamic_palette(tag, pal)
+					if slot != 0xFF:
+						object.palette_num = slot & 0xF
+						object.palette_key = tag
+	if old_key >= 0 and old_key != object.palette_key:
+		_release_dynamic_key(old_key, object)
 	# H&S graphics ids are 16-bit (Fat Man 416, MON_BASE+species up to 16588);
 	# truncating to a byte here made every NPC resolve to the wrong row
 	# (416 -> 160, 425 -> 169: 16x16 sprites, "just the tops of their heads").
 	object.graphics_id = graphics_id if camera.data.id == RomRegistry.HEARTSOUL else graphics_id & 0xFF
+
+
+## Loads [param pal] into the dynamic slot for [param tag] (12-15), sharing
+## the slot between same-tag objects; returns the slot, or 0xFF when the pool
+## is full. The pool is shared with the weather (tags 0x1200/0x1201, two
+## slots on every map) and field effects, so it holds two NPC/MON palettes
+## at most; a full pool evicts one slot no active object, effect, picture,
+## weather sprite or show-mon still uses, then retries once.
+func _load_dynamic_palette(tag: int, pal: PackedByteArray) -> int:
+	var slot: int = sprites.palette.sprite_index(tag)
+	if slot == 0xFF:
+		slot = sprites.palette.alloc_sprite(tag)
+		if slot == 0xFF and _evict_unused_dynamic_slot():
+			slot = sprites.palette.alloc_sprite(tag)
+		if slot != 0xFF:
+			sprites.palette.load(pal, Gen3Palette.OBJ_OFFSET + slot * 16)
+	return slot
+
+
+## Frees one dynamic slot whose tag no live user needs, for
+## [_load_dynamic_palette]'s retry. Weather, effect, picture and show-mon
+## slots are never evicted; only object palettes of despawned or re-skinned
+## objects are.
+func _evict_unused_dynamic_slot() -> bool:
+	for slot: int in sprites.palette.sprite_tags.keys():
+		var tag: int = int(sprites.palette.sprite_tags[slot])
+		if _dynamic_slot_in_use(slot):
+			continue
+		for other: ObjectEvent in objects:
+			if other.active and other.palette_key == tag:
+				tag = -1
+				break
+		if tag < 0:
+			continue
+		sprites.palette.sprite_tags.erase(slot)
+		return true
+	return false
+
+
+## Whether dynamic [param slot] is held by something other than an object
+## event: a field effect or picture palette, a weather sprite palette, or
+## the field-move show-mon banner.
+func _dynamic_slot_in_use(slot: int) -> bool:
+	for row: Dictionary in sprites.effects + sprites.pics:
+		if int(row.get("palette", -1)) == slot:
+			return true
+	var weather: Gen3FieldWeather = sprites.weather
+	if weather != null:
+		if slot == weather.contrast_slot or slot == weather.picture_slot:
+			return true
+		for sprite: Gen3WeatherSprites.WeatherSprite in weather.sprites.all_sprites():
+			if slot == (weather.picture_slot if sprite.second_palette else weather.contrast_slot):
+				return true
+	if field_move_mon != null and field_move_mon.active \
+			and sprites.palette.sprite_index(field_move_mon._tag) == slot:
+		return true
+	return false
+
+
+## Frees [param key]'s dynamic slot when no other active object still owns
+## that key. Never frees a slot a field effect, picture, weather sprite or
+## show-mon still renders with.
+func _release_dynamic_key(key: int, except_object: ObjectEvent = null) -> void:
+	if key < 0:
+		return
+	for other: ObjectEvent in objects:
+		if other.active and other != except_object and other.palette_key == key:
+			return
+	var slot: int = sprites.palette.sprite_index(key)
+	if slot == 0xFF or _dynamic_slot_in_use(slot):
+		return
+	sprites.palette.sprite_tags.erase(slot)
 
 
 ## `TrySetupObjectEventSprite` after `InitObjectEventStateFromTemplate`.
@@ -598,6 +740,10 @@ func spawn(template: Dictionary, number: int, group: int) -> int:
 		object.graphics_id = events.var_get(VAR_OBJ_GFX_ID_0 + object.graphics_id - gfx_vars)
 		if camera.data.id != RomRegistry.HEARTSOUL:
 			object.graphics_id &= 0xFF
+		# A var of 0 means no decoration is placed here. Spawning it would
+		# show graphics id 0, the player, so the bedroom fills with clones.
+		if object.graphics_id == 0:
+			return -1
 	if _ranged[object.movement_type]:
 		object.movement_range = object.movement_range.max(Vector2i.ONE)
 	_take_graphics(object, object.graphics_id)
@@ -922,6 +1068,13 @@ func allow_seen_berry_growth() -> void:
 
 func _deactivate(object: ObjectEvent) -> void:
 	object.active = false
+	# The object's dynamic palette slot is freed when it despawns (and no
+	# other active object shares its tag): the pool holds two NPC/MON
+	# palettes per map once the weather takes its two, and without this every
+	# distinct tag the player walks past on a map leaks a slot until the
+	# next warp, after which every further NPC falls back to its stale
+	# paletteSlot and renders with another NPC's colours.
+	_release_dynamic_key(object.palette_key, object)
 	_step_disguise_effect(object, objects.find(object), _effect_requests)
 
 
@@ -2128,6 +2281,14 @@ func _set_berry_graphics(object: ObjectEvent) -> void:
 	set_graphics_id(object, int(info["berry_graphics"][stage - 1]))
 	object.anim.images = camera.data.world_sprite_images(int(info.get("berry_images", -1)))
 	object.palette_num = int(info["berry_palettes"][stage - 1]) & 15
+	# The tree renders with its berry palette slot, not the tree graphics
+	# row's tag palette (NPC_1): release this object's claim on the dynamic
+	# slot `_take_graphics` just allocated for that tag, so a berry tree
+	# does not hold a slot for a palette it never renders with.
+	var berry_key: int = object.palette_key
+	object.palette_key = -1
+	if berry_key >= 0:
+		_release_dynamic_key(berry_key, object)
 	object.anim.start(stage - 1)
 
 

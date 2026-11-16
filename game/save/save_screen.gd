@@ -118,6 +118,18 @@ func create_new_game(label: String = "", challenge: StringName = &"") -> bool:
 		return false
 	var chosen: StringName = challenge if Gen2Rules.CHALLENGES.has(challenge) \
 		else _new_game_challenge
+	## A Gen 3 cartridge has no Gen 2 intro to walk: no clock font, no Oak
+	## text, and the spawn and world behind it are Gen 1/2. It starts in its
+	## own field instead, New Bark Town on foot. The slot is staged as a new
+	## game, so the world screen starts fresh even when a save already sits
+	## in it; continuing that save is the Continue button's job.
+	if _data.generation == RomRegistry.GEN3:
+		GameRuntime.begin_new_game(_data.id, _selected_slot, trimmed, chosen)
+		_new_game_visible = false
+		get_tree().change_scene_to_file.call_deferred(
+			"res://game/gen3/gen3_world_screen.tscn"
+		)
+		return true
 	GameRuntime.begin_new_game(_data.id, _selected_slot, trimmed, chosen)
 	_new_game_visible = false
 	get_tree().change_scene_to_file.call_deferred("res://game/world/intro_screen.tscn")
@@ -461,6 +473,11 @@ func _refresh_details() -> void:
 	body.add_child(Gen2LauncherUI.muted(_palette, _slot_message(row)))
 	var actions: HFlowContainer = Gen2LauncherUI.actions()
 	body.add_child(actions)
+	## A Gen 3 save has no Gen 2 row to continue from, so its Continue lives
+	## here: the slot the Gen 2 loader could not read may still be a Gen 3 one.
+	if _data != null and _data.generation == RomRegistry.GEN3 \
+			and Gen3SaveStore.exists(_data.id, _data.sha1, _selected_slot):
+		actions.add_child(_action("Continue", Gen2LauncherButton.Variant.PRIMARY, &"play", _continue_gen3_selected))
 	actions.add_child(_action("New game", Gen2LauncherButton.Variant.PRIMARY, &"plus", _request_new_game))
 	actions.add_child(_action("Import .sav", Gen2LauncherButton.Variant.NEUTRAL, &"", _request_import))
 	# Renaming, exporting or deleting a slot with no file behind it can only
@@ -796,6 +813,23 @@ func _continue_selected() -> void:
 	Gen2LauncherAudio.play(&"power")
 	await _shell.flash(false)
 	get_tree().change_scene_to_file.call_deferred("res://game/world/world_screen.tscn")
+
+
+## The Gen 3 counterpart of [method _continue_selected]: the world screen
+## loads the slot's save itself, so this only selects the slot and goes there.
+func _continue_gen3_selected() -> void:
+	if _data == null or not Gen3SaveStore.exists(_data.id, _data.sha1, _selected_slot):
+		return
+	if not GameRuntime.select_save_slot(_data.id, _selected_slot):
+		_set_status(
+			&"error",
+			"Could not select save slot.",
+			"The selected cartridge is not in the registry.",
+		)
+		return
+	Gen2LauncherAudio.play(&"power")
+	await _shell.flash(false)
+	get_tree().change_scene_to_file.call_deferred("res://game/gen3/gen3_world_screen.tscn")
 
 
 ## `MainMenu_MysteryGift`: `UpdateTime`, the day countdown, and then the

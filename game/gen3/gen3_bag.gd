@@ -239,3 +239,60 @@ func remove_coins(amount: int) -> bool:
 		return false
 	coins -= amount
 	return true
+
+
+func to_dict() -> Dictionary: # The bag as JSON rows: pockets and the PC as [item, count] pairs, with the money and coin totals.
+	var pockets: Array = []
+	for pocket: Array in _pockets:
+		var slots: Array = []
+		for slot: Vector2i in pocket:
+			slots.append([slot.x, slot.y])
+		pockets.append(slots)
+	var pc: Array = []
+	for slot: Vector2i in _pc:
+		pc.append([slot.x, slot.y])
+	return {"money": money, "coins": coins, "pockets": pockets, "pc": pc}
+
+
+func from_dict(raw: Variant) -> bool: # Refuses a bag whose pockets are the wrong shape, hold an item its pocket cannot, or break the totals' caps, and changes nothing then.
+	if not raw is Dictionary:
+		return false
+	var source: Dictionary = raw
+	var saved_money: int = int(source.get("money", -1))
+	var saved_coins: int = int(source.get("coins", -1))
+	if saved_money < 0 or saved_money > MAX_MONEY or saved_coins < 0 or saved_coins > MAX_COINS:
+		return false
+	var pockets: Array = _read_slots(source.get("pockets", null), _pockets.size(), POCKET_SLOTS[_events.game])
+	var pc: Array = _read_slots(source.get("pc", null), 1, [PC_SLOTS[_events.game]])
+	if pockets.is_empty() or pc.is_empty():
+		return false
+	for index: int in pockets.size():
+		for slot: Vector2i in pockets[index]:
+			if slot.x != 0 and pocket_of(slot.x) != index + 1:
+				return false
+	money = saved_money
+	coins = saved_coins
+	_pockets = pockets
+	_pc = pc[0]
+	return true
+
+
+func _read_slots(raw: Variant, count: int, sizes: Array) -> Array:
+	if not raw is Array or (raw as Array).size() != count:
+		return []
+	var out: Array = []
+	for index: int in count:
+		var slots: Variant = (raw as Array)[index]
+		if not slots is Array or (slots as Array).size() != int(sizes[index]):
+			return []
+		var pocket: Array = []
+		for slot: Variant in slots as Array:
+			if not slot is Array or (slot as Array).size() != 2:
+				return []
+			var item: int = int((slot as Array)[0])
+			var amount: int = int((slot as Array)[1])
+			if item < 0 or amount < 0 or amount > LARGE_STACK or (item == 0) != (amount == 0):
+				return []
+			pocket.append(Vector2i(item, amount))
+		out.append(pocket)
+	return out

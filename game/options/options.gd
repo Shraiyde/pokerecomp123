@@ -83,6 +83,14 @@ var printer_brightness: int = PRINTER_NORMAL_INDEX
 var menu_account: bool = true
 var textbox_frame: int = 0
 var fast_text_delay: bool = true
+## Gen 3 (Emerald) block, `gSaveBlock2Ptr`'s options. Separate keys because
+## Gen 2's fields cannot hold them: its text speed is FAST/MID/SLOW in the
+## opposite order with no FASTER, and its frame is 0-7 against Gen 3's 20.
+## `battle_scene`, `battle_style_set` and `stereo` above are shared: same
+## meaning and same defaults on both generations.
+var gen3_text_speed: int = 2
+var gen3_button_mode: int = 0
+var gen3_frame: int = 0
 
 # App block.
 var music_volume: int = 7
@@ -222,6 +230,9 @@ func to_dict() -> Dictionary:
 		"menu_account": menu_account,
 		"textbox_frame": textbox_frame,
 		"fast_text_delay": fast_text_delay,
+		"gen3_text_speed": gen3_text_speed,
+		"gen3_button_mode": gen3_button_mode,
+		"gen3_frame": gen3_frame,
 		"music_volume": music_volume,
 		"sfx_volume": sfx_volume,
 		"video_mode": String(video_mode),
@@ -264,6 +275,9 @@ static func parse(raw: Variant) -> Gen2Options:
 	options.menu_account = bool(row.get("menu_account", true))
 	options.textbox_frame = clampi(int(row.get("textbox_frame", 0)), 0, FRAME_COUNT - 1)
 	options.fast_text_delay = bool(row.get("fast_text_delay", true))
+	options.gen3_text_speed = clampi(int(row.get("gen3_text_speed", 2)), 0, 3)
+	options.gen3_button_mode = clampi(int(row.get("gen3_button_mode", 0)), 0, 2)
+	options.gen3_frame = clampi(int(row.get("gen3_frame", 0)), 0, 19)
 	options.music_volume = clampi(int(row.get("music_volume", 7)), 0, MAX_VOLUME)
 	options.sfx_volume = clampi(int(row.get("sfx_volume", 7)), 0, MAX_VOLUME)
 	options.video_mode = _one_of(row.get("video_mode", ""), VIDEO_MODES)

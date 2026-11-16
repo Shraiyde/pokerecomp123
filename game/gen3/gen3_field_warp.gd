@@ -113,8 +113,15 @@ func _leave() -> void: # Task_WarpAndLoadMap, or FRLG's Task_Teleport2Warp.
 		0:
 			_screen.host.objects.freeze_except_player()
 			_state = 1
+			_timer = 0
 		1:
-			if not _screen.vram.palette.fade_active:
+			_timer += 1
+			## The fade normally ends on its own; if it stalls the warp must
+			## still go through instead of leaving the player on a black
+			## screen, so force the fade off after ~1.5s and load the map.
+			if not _screen.vram.palette.fade_active or _timer > 90:
+				if _screen.vram.palette.fade_active:
+					_screen.vram.palette.reset_fade()
 				_state = 2
 		2:
 			task = Task.NONE

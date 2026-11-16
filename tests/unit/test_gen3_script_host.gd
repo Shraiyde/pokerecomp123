@@ -321,6 +321,19 @@ func test_step_warp_tiles_take_each_engines_presentation() -> void:
 		assert_true(output.any(func(event: Dictionary) -> bool: return event["kind"] == "warp" and event["mode"] == row[2]))
 
 
+func test_a_warp_event_triggers_without_a_known_tile_behavior() -> void:
+	## H&S stairs carry a behavior the vanilla warp table does not list, but
+	## the ROM still put a warp event on the tile, so stepping on it warps.
+	var host: Gen3ScriptHost = _field_host(RomRegistry.HEARTSOUL)
+	_warp_map(host)
+	var cell: Vector2i = host.avatar.object().current + Vector2i.DOWN - Vector2i.ONE * 7
+	host.objects.camera.data._world_headers["0:0"]["events"]["warps"] = [
+		{"x": cell.x, "y": cell.y, "elevation": 0, "group": 0, "number": 1, "warp_id": 0}]
+	var output: Array = _walk_onto(host, 0xA2)
+	assert_true(host.warp_pending, "HEARTSOUL 0xa2")
+	assert_true(output.any(func(event: Dictionary) -> bool: return event["kind"] == "warp" and event["mode"] == "warp"))
+
+
 func test_a_hole_starts_its_script_after_setup_and_an_ordinary_floor_hole_needs_no_warp_row() -> void:
 	var host: Gen3ScriptHost = _field_host(RomRegistry.FIRERED, {"fall_warp": 1})
 	_warp_map(host)

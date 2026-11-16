@@ -99,6 +99,19 @@ func peer_block(_payload: Dictionary) -> Dictionary:
 	}
 
 
+## This side's room, for a transport whose peer is a live player rather than
+## a save slot: the local transport's peer is fixed at creation, so this is a
+## no-op here and the network transport overrides it to publish at once.
+func set_local_room(_room: int) -> void:
+	pass
+
+
+## This side's offered trade row, for the same reason: a no-op here, published
+## at once by the network transport.
+func set_local_trade_slot(_slot: int) -> void:
+	pass
+
+
 ## `Link_ResetSerialRegistersAfterLinkClosure`. A closed link forgets which side
 ## it was; the peer stays, because the player can walk back to the receptionist.
 func close() -> void:

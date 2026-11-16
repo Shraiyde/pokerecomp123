@@ -5,6 +5,7 @@ const FADE: String = "fade" # What [method step] returns besides "", an action o
 const CLOSE: String = "close"
 const RETIRE: String = "retire"
 const SAVE: String = "save"
+const OPTION: String = "option"
 const EXIT: String = "exit"
 const HELP_ROWS: int = 9 # `sStartMenuDescPointers`.
 const NO_FADE: Array[String] = [SAVE, EXIT, RETIRE] # The callbacks HandleStartMenuInput sends to at once.
@@ -13,7 +14,7 @@ const LABELS: Dictionary = { # `MENU_ACTION_*`: rows of `sStartMenuItems`.
 	&"emerald": {"pokedex": 0, "pokemon": 1, "bag": 2, "pokenav": 3, "player": 4, "save": 5, "option": 6, "exit": 7, "retire": 8},
 	&"firered": {"pokedex": 0, "pokemon": 1, "bag": 2, "player": 3, "save": 4, "option": 5, "exit": 6, "retire": 7},
 }
-const SAFARI_ACTIONS: Array[String] = ["retire", "pokedex", "pokemon", "bag", "player", "option", "exit"]
+const SAFARI_ACTIONS: Array[String] = ["retire", "option", "exit"] # POKÉDEX, POKÉMON, BAG and PLAYER have no Gen 3 screen yet; they stay hidden here as below until one lands.
 const FIRST_ROW: Dictionary = {&"ruby": 8, &"emerald": 9, &"firered": 0}
 const ROW_HEIGHT: Dictionary = {&"ruby": 16, &"emerald": 16, &"firered": 15}
 const TEXT_LEFT: Dictionary = {&"ruby": 0, &"emerald": 8, &"firered": 8}
@@ -102,19 +103,21 @@ func _erase() -> void:
 
 
 func _build_actions(events: Gen3EventData) -> Array[String]:
-	var flags: Dictionary = Gen3FieldInput.FLAGS[_engine]
+	# Game-keyed, not engine-keyed: H&S runs the Emerald engine, but its ROM
+	# flag ids differ — the safari flag is 0x860 here, not Emerald's 0x88C,
+	# so reading FLAGS["emerald"] gated the Safari list on the wrong flag.
+	var flags: Dictionary = Gen3FieldInput.FLAGS[events.game]
 	if events.flag_get(int(flags["safari"])):
 		return SAFARI_ACTIONS.duplicate()
-	var out: Array[String] = []
-	if events.flag_get(int(flags["pokedex"])):
-		out.append("pokedex")
-	if events.flag_get(int(flags["pokemon"])):
-		out.append("pokemon")
-	out.append("bag")
-	if flags.has("pokenav") and events.flag_get(int(flags["pokenav"])):
-		out.append("pokenav")
-	out.append_array(["player", "save", "option", "exit"])
-	return out
+	# POKÉDEX, POKÉMON, BAG, POKÉNAV and PLAYER have no Gen 3 screen at all
+	# (Gen3Bag is a data model only), so they are not offered: a shown row
+	# that only reopened the menu was a dead end, and each returns when its
+	# screen lands. The flag gating below is the ROM's own (`start_menu.c`,
+	# `pokehns/include/constants/flags_hns.h` under SYSTEM_FLAGS 0x860):
+	# FLAG_SYS_POKEMON_GET 0x890, FLAG_SYS_POKEDEX_GET 0x891 and
+	# FLAG_SYS_POKENAV_GET 0x892. The vanilla Emerald ids 0x860/0x861/0x862
+	# are H&S hide flags, not these.
+	return ["save", "option", "exit"]
 
 
 func _draw() -> void:

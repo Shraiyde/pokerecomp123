@@ -4426,11 +4426,13 @@ func _special_challenge_menu(_special: int) -> Dictionary:
 
 
 func _special_request_link_room(special: int) -> Dictionary:
-	_link_session().request_room(
-		Gen2LinkSession.CABLECLUBROOM_TRADECENTER \
-			if special == SPECIAL_SET_BITS_FOR_LINK_TRADE_REQUEST \
-			else Gen2LinkSession.CABLECLUBROOM_COLOSSEUM
-	)
+	var room: int = Gen2LinkSession.CABLECLUBROOM_TRADECENTER \
+		if special == SPECIAL_SET_BITS_FOR_LINK_TRADE_REQUEST \
+		else Gen2LinkSession.CABLECLUBROOM_COLOSSEUM
+	_link_session().request_room(room)
+	## A live peer learns the room at once, so its `peer_room` sees it before
+	## the receptionist asks again; a save-slot peer is fixed and ignores this.
+	_link_transport().set_local_room(room)
 	return {"ok": true}
 
 
@@ -4438,6 +4440,7 @@ func _special_request_link_room(special: int) -> Dictionary:
 ## reaches `CheckBothSelectedSameRoom` on a branch that could pass.
 func _special_set_bits_for_time_capsule_request(_special: int) -> Dictionary:
 	_link_session().request_time_capsule()
+	_link_transport().set_local_room(Gen2LinkSession.CABLECLUBROOM_NULL)
 	return {"ok": true}
 
 

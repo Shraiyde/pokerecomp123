@@ -15,6 +15,11 @@ var warp: Gen3FieldWarp
 var message: Gen3FieldMessage
 var menu: Gen3FieldMenu
 var start_menu: Gen3FieldStartMenu
+var options_menu: Gen3FieldOptionsMenu
+## The slot this session saves back to: 0 by default, or the slot it was
+## loaded from. The world screen sets it; the launcher stages it.
+var save_slot: int = 0
+var _save_prompt: Gen3SavePrompt = null # The save sequence in progress, or null on the open field.
 var _keys_held: bool = false
 var _keys_pressed: bool = false
 var _pressed: Array[int] = []
@@ -23,14 +28,17 @@ var _requests: Array = []
 
 
 static func open(game: GameData, group: int, number: int, at: Vector2i, direction: int = 1, gender: int = 0,
-		flags: int = Gen3PlayerAvatar.Flag.ON_FOOT, forced_weather: int = -1) -> Gen3FieldScreen: # Standing on layout cell [param at]; null where the player cannot stand.
+		flags: int = Gen3PlayerAvatar.Flag.ON_FOOT, forced_weather: int = -1,
+		events: Gen3EventData = null) -> Gen3FieldScreen: # Standing on layout cell [param at]; null where the player cannot stand. A loaded save passes its own events in, so the objects spawn under the saved flags.
 	var camera: Gen3FieldCamera = Gen3FieldCamera.open(game, group, number, at)
 	if camera == null:
 		return null
 	var screen := Gen3FieldScreen.new()
 	screen.data = game
 	screen.vram = Gen3FieldVram.load(camera.grid.primary, camera.grid.secondary)
-	var events := Gen3EventData.new(game.id)
+	events = events if events != null else Gen3EventData.new(game.id)
+	if events.player_name.is_empty(): # oak_speech_hns.c presets the name GOLD (boy) / KRIS (girl); the intro that asks is skipped, so a new game otherwise talks to "<PLAYER>".
+		events.player_name = "KRIS" if gender == 1 else "GOLD"
 	var objects := Gen3ObjectEvents.new(camera, events, screen.vram.palette)
 	screen.weather = Gen3FieldWeather.new(game, screen.vram.palette, events)
 	objects.sprites.weather = screen.weather
@@ -54,9 +62,27 @@ static func open(game: GameData, group: int, number: int, at: Vector2i, directio
 	screen.menu = Gen3FieldMenu.new(screen.message, screen.host.input.engine)
 	screen.start_menu = Gen3FieldStartMenu.new(screen.message, screen.host.input.engine, game.world_start_menu(),
 		screen.host.services.placeholders)
+	screen.options_menu = Gen3FieldOptionsMenu.new(screen.message, screen.host.input.engine)
+	screen._apply_options()
 	screen.doors = Gen3FieldDoor.new(camera, screen.vram, screen.host.input, events)
 	screen.vram.palette.faded.fill(0) # FieldCB_FadeTryShowMapPopup's FadeInFromBlack.
 	screen.weather.fade_screen(Gen3FieldWeather.Fade.FROM_BLACK, 0)
+	return screen
+
+
+## A saved game, reopened where it was saved: the saved map, cell and facing,
+## with the saved flags, vars, party, bag, clock and Mom's state behind it.
+## Null where the save is not valid or the player cannot stand there.
+static func open_from_save(game: GameData, save: Gen3SaveData) -> Gen3FieldScreen:
+	if save == null:
+		return null
+	var events := Gen3EventData.from_dict(save.events, game)
+	if events == null:
+		return null
+	var screen := open(game, save.map_group, save.map_number, save.player_cell, save.facing,
+		0, Gen3PlayerAvatar.Flag.ON_FOOT, -1, events)
+	if screen != null:
+		screen.save_slot = save.slot
 	return screen
 
 
@@ -95,6 +121,97 @@ func return_to_start_menu(faded: bool = true) -> void: # CB2_ReturnToFieldWithOp
 		weather.fade_screen(Gen3FieldWeather.Fade.FROM_BLACK, 0)
 
 
+## SAVE from the Start menu: the Start menu window stays up under the prompt
+## and the field stays frozen, exactly as the menu left it. A second SAVE
+## while one is already running is ignored.
+func begin_save() -> void:
+	if _save_prompt != null:
+		return
+	var events: Gen3EventData = host.objects.events
+	# start_menu.c::SaveFileExistsCallback: Heart & Soul skips the overwrite
+	# question for the save already in the slot (`#if IS_HNS` goes straight
+	# to the SAVING message); the slot is per-cartridge, so a file there is
+	# always the same file. The other Gen 3 games still ask.
+	var ask_overwrite: bool = data.id != RomRegistry.HEARTSOUL \
+		and Gen3SaveStore.exists(data.id, data.sha1, save_slot)
+	_save_prompt = Gen3SavePrompt.open(
+		events.player_name,
+		ask_overwrite,
+		_write_save
+	)
+
+
+## The write the prompt runs: the field as it stands, into this session's slot.
+func _write_save() -> Dictionary:
+	var events: Gen3EventData = host.objects.events
+	var player: Gen3ObjectEvents.ObjectEvent = host.avatar.object()
+	var cell: Vector2i = player.current - Vector2i.ONE * Gen3MapGrid.MAP_OFFSET
+	var save := Gen3SaveData.capture(data, save_slot, events,
+		host.objects.camera.group, host.objects.camera.number, cell, player.facing)
+	if save == null:
+		return {"ok": false, "message": "the save could not be built"}
+	return Gen3SaveStore.save(save, data)
+
+
+## One frame of the save sequence, in place of the field's own message, menu
+## and Start-menu steps: the prompt's answers are consumed here, never handed
+## to the script host, whose `VAR_RESULT` and message state belong to scripts.
+func _step_save(out: Array) -> void:
+	var prompt := _save_prompt
+	if prompt == null:
+		return
+	message.step(_keys_held, _keys_pressed, out)
+	match prompt.step:
+		Gen3SavePrompt.Step.ASK, Gen3SavePrompt.Step.OVERWRITE:
+			if not prompt.text_shown:
+				message.show(Gen3Text.encode(prompt.text()), "message", 0)
+				prompt.text_shown = true
+			elif not message.printing and not prompt.question_open:
+				menu.open({"choices": ["YES", "NO"], "yes_no": true, "default": 0})
+				prompt.question_open = true
+			elif prompt.question_open:
+				var choice: int = menu.step(_pressed, out)
+				if choice != Gen3FieldMenu.NOTHING:
+					prompt.answer(choice == 1)
+					if prompt.finished():
+						_end_save()
+		Gen3SavePrompt.Step.SAVING:
+			if not prompt.text_shown:
+				message.show(Gen3Text.encode(prompt.text()), "messageinstant", 0)
+				prompt.text_shown = true
+				prompt.begin_write()
+		Gen3SavePrompt.Step.SAVED, Gen3SavePrompt.Step.FAILED:
+			if not prompt.text_shown:
+				message.show(Gen3Text.encode(prompt.text()), "message", 0)
+				prompt.text_shown = true
+			elif not message.printing and (PokeButton.A in _pressed or PokeButton.B in _pressed):
+				prompt.acknowledge()
+				_end_save()
+
+
+## The sequence is over, saved or declined: the message box goes away and the
+## Start menu comes back up, unfaded, since SAVE never faded out of it.
+func _end_save() -> void:
+	_save_prompt = null
+	message.hide()
+	return_to_start_menu(false)
+
+
+## OPTION from the Start menu: the field stays frozen (the menu froze it)
+## until the player is back at the Start menu, which unfreezes exactly once
+## on CLOSE. The fade from black is the same one [method return_to_start_menu] runs.
+func open_options() -> void:
+	options_menu.open()
+	weather.fade_screen(Gen3FieldWeather.Fade.FROM_BLACK, 0)
+
+
+## The stored text speed, applied to the message printer on field open and
+## again when the OPTION screen closes; the other rows are stored for the
+## screens that will read them (battles, button mode, frame).
+func _apply_options() -> void:
+	message.text_speed = Gen3Options.load().message_text_speed()
+
+
 func request(row: Dictionary) -> void: # A task's request for the next [method frame]'s return.
 	_requests.append(row)
 
@@ -119,12 +236,16 @@ func _run_tasks(requests: Array) -> Array:
 		_waiting = Callable()
 		host.finish_wait()
 	warp.step(out)
-	if message.step(_keys_held, _keys_pressed, out):
-		host.finish_message()
-	var choice: int = menu.step(_pressed, out)
-	if choice != Gen3FieldMenu.NOTHING:
-		host.choose(choice)
-	_step_start_menu(out)
+	if _save_prompt != null:
+		_step_save(out)
+	else:
+		if message.step(_keys_held, _keys_pressed, out):
+			host.finish_message()
+		var choice: int = menu.step(_pressed, out)
+		if choice != Gen3FieldMenu.NOTHING:
+			host.choose(choice)
+		_step_start_menu(out)
+		_step_options(out)
 	doors.step()
 	weather.run_tasks()
 	return out
@@ -140,6 +261,16 @@ func _step_start_menu(out: Array) -> void:
 			if action == Gen3FieldStartMenu.RETIRE:
 				host.unfreeze_field()
 			out.append({"kind": "start_menu_action", "action": action})
+
+
+func _step_options(out: Array) -> void:
+	var action: String = options_menu.step(_pressed, out, vram.palette.fade_active)
+	match action:
+		"": pass
+		Gen3FieldOptionsMenu.FADE: weather.fade_screen(Gen3FieldWeather.Fade.TO_BLACK, 0)
+		Gen3FieldOptionsMenu.CLOSE:
+			_apply_options()
+			return_to_start_menu()
 
 
 func _cross_connection() -> void: # New tilesets and the door cells, which are BG tilemap writes the crossing's redraw replaces.

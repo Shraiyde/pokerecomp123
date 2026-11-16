@@ -9,10 +9,12 @@ extends RefCounted
 const GROUP_PAD: StringName = &"pad"
 const GROUP_A: StringName = &"a"
 const GROUP_B: StringName = &"b"
+const GROUP_L: StringName = &"l"
+const GROUP_R: StringName = &"r"
 const GROUP_START: StringName = &"start"
 const GROUP_SELECT: StringName = &"select"
 const GROUPS: Array[StringName] = [
-	GROUP_PAD, GROUP_A, GROUP_B, GROUP_START, GROUP_SELECT,
+	GROUP_PAD, GROUP_A, GROUP_B, GROUP_L, GROUP_R, GROUP_START, GROUP_SELECT,
 ]
 
 ## The name A and B shared while they were one cluster on a fixed diagonal. Read
@@ -25,6 +27,8 @@ const GROUP_FACE: StringName = &"face"
 const GROUP_BUTTONS: Dictionary = {
 	GROUP_A: PokeButton.A,
 	GROUP_B: PokeButton.B,
+	GROUP_L: PokeButton.L,
+	GROUP_R: PokeButton.R,
 	GROUP_START: PokeButton.START,
 	GROUP_SELECT: PokeButton.SELECT,
 }
@@ -34,8 +38,8 @@ const ORIENTATION_LANDSCAPE: StringName = &"landscape"
 const ORIENTATIONS: Array[StringName] = [ORIENTATION_PORTRAIT, ORIENTATION_LANDSCAPE]
 
 ## Sizes in display-independent points, shared by the game and its layout editor.
-const PAD_SIZE: float = 112.0
-const FACE_DIAMETER: float = 56.0
+const PAD_SIZE: float = 132.0
+const FACE_DIAMETER: float = 68.0
 ## Centre-to-centre along the diagonal A and B sat on while they were one
 ## cluster. Only [method _split_face] reads it now: the two are dragged
 ## separately and nothing holds them apart.
@@ -57,20 +61,24 @@ const MAX_OPACITY: float = 1.0
 
 ## Thumb-reachable corners in each orientation. Portrait has the whole strip
 ## under the screen, so START and SELECT sit together along the bottom of it.
-## Landscape keeps everything hard against the two edges, because the middle is
-## where the hardware screen is.
+## The game sits in the top of the screen, so the pad, face buttons and
+## shoulders live in the bottom strip, clear of the world.
 const DEFAULT_ANCHORS: Dictionary = {
 	ORIENTATION_PORTRAIT: {
-		GROUP_PAD: Vector2(0.24, 0.50),
-		GROUP_B: Vector2(0.86, 0.43),
-		GROUP_A: Vector2(0.68, 0.57),
-		GROUP_SELECT: Vector2(0.38, 0.88),
-		GROUP_START: Vector2(0.62, 0.88),
+		GROUP_PAD: Vector2(0.22, 0.75),
+		GROUP_B: Vector2(0.88, 0.72),
+		GROUP_A: Vector2(0.72, 0.78),
+		GROUP_L: Vector2(0.12, 0.60),
+		GROUP_R: Vector2(0.88, 0.60),
+		GROUP_SELECT: Vector2(0.38, 0.92),
+		GROUP_START: Vector2(0.62, 0.92),
 	},
 	ORIENTATION_LANDSCAPE: {
 		GROUP_PAD: Vector2(0.12, 0.55),
 		GROUP_B: Vector2(0.93, 0.48),
 		GROUP_A: Vector2(0.79, 0.62),
+		GROUP_L: Vector2(0.12, 0.10),
+		GROUP_R: Vector2(0.88, 0.10),
 		GROUP_SELECT: Vector2(0.12, 0.90),
 		GROUP_START: Vector2(0.88, 0.90),
 	},
@@ -89,7 +97,24 @@ const MOD_ANCHOR: Dictionary = {
 const MOD_ANCHOR_STEP: float = 0.12
 
 var scale: float = DEFAULT_SCALE
+## Per-group multipliers on [member scale]: the d-pad's joystick stays big
+## while the face and menu buttons sit at the skin's own sizes. One scale
+## for all of them either shrinks the stick or blows the buttons up.
+var pad_scale: float = 1.0
+var face_scale: float = 1.0
+var menu_scale: float = 1.0
 var opacity: float = DEFAULT_OPACITY
+## Draw the d-pad as a circle the thumb slides in (a joystick) instead of a
+## cross. Direction still reads by dominant axis from the circle's centre.
+var joystick: bool = false
+## Keep every cluster fully inside the area it is drawn in. The skin screen
+## turns this off: the big joystick is centred on the drawn d-pad and its
+## circle overhangs the drawn button, so clamping its whole box inside would
+## shove its centre off the art on a narrow phone.
+var clamp_groups_to_area: bool = true
+## Draw buttons as white outlines only, no fill, so the art underneath stays
+## visible while the touch zones can be seen.
+var outline_only: bool = false
 ## Orientation name, then group name, to a normalised centre.
 var anchors: Dictionary = {}
 ## A mod's own on-screen buttons, as `{action, label}` in registration order.
@@ -195,14 +220,14 @@ func set_anchor(orientation: StringName, group: StringName, centre: Vector2, are
 func group_size(group: StringName) -> Vector2:
 	match group:
 		GROUP_PAD:
-			return Vector2(PAD_SIZE, PAD_SIZE) * scale
+			return Vector2(PAD_SIZE, PAD_SIZE) * scale * pad_scale
 		GROUP_A, GROUP_B:
-			return Vector2(FACE_DIAMETER, FACE_DIAMETER) * scale
-		GROUP_START, GROUP_SELECT:
-			return MENU_SIZE * scale
+			return Vector2(FACE_DIAMETER, FACE_DIAMETER) * scale * face_scale
+		GROUP_L, GROUP_R, GROUP_START, GROUP_SELECT:
+			return MENU_SIZE * scale * menu_scale
 	# A mod's button is the same pill, since it is one press like those two.
 	if mod_groups().has(group):
-		return MENU_SIZE * scale
+		return MENU_SIZE * scale * menu_scale
 	return Vector2.ZERO
 
 
@@ -219,6 +244,8 @@ func group_rect(group: StringName, area: Rect2, placing: StringName = &"") -> Re
 	# area it was never measured against, and half a face button off the glass is
 	# half a button.
 	var half: Vector2 = size * 0.5
+	if not clamp_groups_to_area:
+		return Rect2(centre - half, size)
 	if area.size.x >= size.x:
 		centre.x = clampf(centre.x, area.position.x + half.x, area.end.x - half.x)
 	if area.size.y >= size.y:

@@ -2,7 +2,7 @@ class_name Gen3ScriptHost
 extends RefCounted
 
 const FRAME_TABLE: int = 2
-const KEY_BITS: Array[int] = [0, 64, 128, 32, 16, 1, 2, 8, 4] # PokeButton id to GBA joypad bit.
+const KEY_BITS: Array[int] = [0, 64, 128, 32, 16, 1, 2, 8, 4, 512, 256] # PokeButton id to GBA joypad bit.
 const KEY_A: int = 1
 const KEY_B: int = 2
 const KEY_SELECT: int = 4
@@ -63,8 +63,36 @@ const SPECIALS: Dictionary = { # `data/specials.inc` rows under Emerald's names.
 		208: "EnterSafariMode", 209: "ExitSafariMode", 217: "DoPCTurnOnEffect", 218: "DoPCTurnOffEffect",
 		252: "BedroomPC", 253: "PlayerPC", 254: "FieldShowRegionMap", 265: "ScriptMenu_CreatePCMultichoice",
 		266: "AccessHallOfFamePC", 321: "DoFallWarp", 334: "Script_FadeOutMapMusic", 344: "NoOp",
-		414: "BufferTMHMMoveName", 415: "IsWirelessAdapterConnected", 419: "ShowWirelessCommunicationScreen"},
+		414: "BufferTMHMMoveName", 415: "IsWirelessAdapterConnected", 419: "ShowWirelessCommunicationScreen",
+		158: "StartWallClock", 159: "Special_ViewWallClock", 649: "IsNuzlockeNicknamingActive"},
 }
+## Heart & Soul's own table: `data/specials.inc`'s `gSpecials` order for the H&S ROM.
+## Vanilla Emerald's numbers are wrong here — the expansion inserted and removed
+## specials, so everything after the first shift is off (StartWallClock is 157, not
+## 158; the ROM bytes at 0x353d05 read `special 157`, and 0x353cfd `special 158` for
+## ViewWallClock). Entries vanilla has that H&S dropped (344 GenerateContestRand,
+## 419 TryJoinLinkGroup, 515 CallTrainerHillFunction) are left out on purpose:
+## calling one faults honestly instead of running the wrong special.
+const HEARTSOUL_SPECIALS: Dictionary = {
+	0: "HealPlayerParty", 54: "GetTrainerBattleMode", 55: "ShowTrainerIntroSpeech",
+	56: "ShowTrainerCantBattleSpeech", 57: "GetTrainerFlag", 58: "DoTrainerApproach",
+	59: "PlayTrainerEncounterMusic", 60: "ShouldTryRematchBattle", 61: "IsTrainerReadyForRematch",
+	62: "BattleSetup_StartRematchBattle", 64: "HasEnoughMonsForDoubleBattle", 134: "CalculatePlayerPartyCount",
+	135: "CountPartyNonEggMons", 145: "DrawWholeMapView",
+	183: "GetBattleOutcome", 317: "SetTrainerFacingDirection", 527: "PlayerFaceTrainerAfterBattle",
+	531: "TryPrepareSecondApproachingTrainer",
+	63: "ShowPokemonStorageSystemPC", 98: "ShowEasyChatScreen", 153: "SetHiddenItemFlag",
+	199: "ShowLinkBattleRecords", 202: "TryFieldPoisonWhiteOut", 203: "SetCB2WhiteOut", 207: "ResetSSTidalFlag",
+	208: "EnterSafariMode", 209: "ExitSafariMode", 217: "DoPCTurnOnEffect", 218: "DoPCTurnOffEffect",
+	252: "BedroomPC", 253: "PlayerPC", 254: "FieldShowRegionMap", 265: "ScriptMenu_CreatePCMultichoice",
+	266: "AccessHallOfFamePC", 322: "DoFallWarp", 336: "Script_FadeOutMapMusic",
+	416: "BufferTMHMMoveName", 417: "IsWirelessAdapterConnected", 421: "ShowWirelessCommunicationScreen",
+	157: "StartWallClock", 158: "Special_ViewWallClock", 311: "IsPokerusInParty", 483: "CountPlayerTrainerStars",
+	649: "IsNuzlockeNicknamingActive", 648: "NameRival", 651: "IsPokecenterChallengeActivated",
+	161: "ChangePokemonNickname", 159: "ChooseStarter", 631: "CheckAddCoins", 346: "TryPutTreasureInvestigatorsOnAir",
+	667: "Special_MomEnableSaving", 668: "Special_MomDisableSaving", 669: "Special_MomGetBalance",
+	672: "Special_MomIsSavingEnabled", 673: "Special_MomEnsureInitialized",
+	674: "Special_MomOpenDepositInput", 675: "Special_MomOpenWithdrawInput"}
 const HANDLERS: Dictionary = {
 	"special": &"_special_command", "specialvar": &"_special_command",
 	"yesnobox": &"_menu_command", "multichoice": &"_menu_command", "multichoicedefault": &"_menu_command",
@@ -452,10 +480,18 @@ func _try_door_warp(direction: int, requests: Array) -> bool: # TryDoorWarp; sec
 
 
 func _try_warp(at: Vector2i, elevation: int, mode: String, behavior: int, requests: Array) -> bool: # SetupWarp, then the `Do*Warp` that [param mode] names or a `script:`.
+	var id: int = _warp_event_at(at, elevation)
+	if id < 0:
+		return false
+	## No presentation, no warp: the ROM only fires a warp event on a
+	## warp behavior (`TryStartWarpEventScript` gates on
+	## `IsWarpMetatileBehavior`, `TryArrowWarp` on the pressed direction).
+	## A bare warp event on a plain tile — the bedroom's (1,6) downstairs
+	## tile, behavior MB_IMPASSABLE_NORTH — is inert in the ROM, so the
+	## step path's empty `warp_mode` must not fall back to a plain warp.
 	if mode.is_empty():
 		return false
-	var id: int = _warp_event_at(at, elevation)
-	if id < 0 or not warps.from_event(objects.camera.data, objects.camera.group, objects.camera.number, id, at - Vector2i.ONE * Gen3MapGrid.MAP_OFFSET):
+	if not warps.from_event(objects.camera.data, objects.camera.group, objects.camera.number, id, at - Vector2i.ONE * Gen3MapGrid.MAP_OFFSET):
 		return false
 	if mode.begins_with("script:"):
 		return _start_native(mode.trim_prefix("script:"))
@@ -865,7 +901,7 @@ func _configure_battle(event: Dictionary) -> void:
 
 func _special_command(event: Dictionary) -> void:
 	var operands: Array = event["operands"]
-	var table: Dictionary = SPECIALS[input.engine]
+	var table: Dictionary = HEARTSOUL_SPECIALS if objects.events.game == RomRegistry.HEARTSOUL else SPECIALS[input.engine]
 	var name: String = table.get(int(operands.back()), "")
 	if name.is_empty():
 		_executing.fail(int(event["offset"]), "unsupported_special", event)
@@ -896,6 +932,8 @@ func _special(name: String) -> int: # One row of [constant SPECIALS]: its return
 		"GetBattleOutcome": return events.battle_outcome
 		"CalculatePlayerPartyCount": return events.party.size()
 		"CountPartyNonEggMons": return events.party.filter(func(mon: Dictionary) -> bool: return not bool(mon["egg"])).size()
+		"IsNuzlockeNicknamingActive": return 0 # nuzlocke.c reads the challenge settings, which the engine has no model of; a Nuzlocke cannot be active before the lab's police episode sets it, so the starter's check is inactive.
+		"IsPokecenterChallengeActivated": return 0 # No PokeCenter challenge model in the engine; never active here, so Mom's regular script takes its normal path.
 		"SetBattledTrainerFlag": events.flag_set(Gen3TrainerBattle.TRAINER_FLAGS_START + battle.opponent_a)
 		"HealPlayerParty": _output.append({"kind": "heal_party"})
 		"DrawWholeMapView": _output.append({"kind": "redraw_map"})
@@ -909,6 +947,24 @@ func _field_special(name: String) -> int: # The specials field_control_avatar.c'
 		"SetHiddenItemFlag": events.flag_set(events.var_get(VAR_0X8004))
 		"BufferTMHMMoveName": return services.buffer_tm_move(events.var_get(VAR_0X8004))
 		"CheckAddCoins": return int(events.var_get(Gen3ScriptServices.VAR_RESULT) + events.var_get(VAR_0X8006) <= 9999)
+		"Special_MomGetBalance": return _mom_balance()
+		"Special_MomIsSavingEnabled": return _mom_saving_enabled()
+		"Special_MomEnableSaving": events.mom_saving = true
+		"Special_MomDisableSaving": events.mom_saving = false
+		"Special_MomEnsureInitialized": pass # mom_savings.c::Mom_EnsureInitialized returns early once initialized; the balance starts at 0 and nothing here changes it.
+		"Special_MomOpenDepositInput", "Special_MomOpenWithdrawInput":
+			# mom_savings.c cancels the amount input with VAR_0x8000 at 0, and the
+			# script returns to Mom's menu. No Gen 3 amount-input screen exists
+			# yet, so opening one is that cancel: the amount stays 0 and the
+			# dialog ends instead of hanging on a screen that never opens.
+			events.var_set(VAR_0X8000, 0)
+			_screen_special(name)
+		"ChangePokemonNickname": _nickname_special()
+		"ChooseStarter":
+			# Route101 fades the field to black before this special, and the
+			# starter-choice screen has no Gen 3 UI yet, so the script carries
+			# on without one; the field fades back instead of staying black.
+			_screen_special(name, {"fade_back": true})
 		"TryFieldPoisonWhiteOut": _field_poison_white_out()
 		"DoFallWarp": _begin_warp("fall", true)
 		"DoPicboxCancel": _close_message()
@@ -923,6 +979,20 @@ func _field_special(name: String) -> int: # The specials field_control_avatar.c'
 	return 0
 
 
+func _mom_balance() -> int: # mom_savings.c::Special_MomGetBalance: STR_VAR_1 the balance, STR_VAR_2 it with the Pokedollar sign, VAR_RESULT the balance.
+	var balance: int = objects.events.mom_balance
+	services.strings[0] = str(balance)
+	services.strings[1] = "¥" + str(balance)
+	objects.events.var_set(Gen3ScriptServices.VAR_RESULT, balance)
+	return balance
+
+
+func _mom_saving_enabled() -> int: # mom_savings.c::Special_MomIsSavingEnabled sets VAR_RESULT itself; Mom's menu reads it after a plain `special`, not a `specialvar`.
+	var enabled: int = 1 if objects.events.mom_saving else 0
+	objects.events.var_set(Gen3ScriptServices.VAR_RESULT, enabled)
+	return enabled
+
+
 func _player_special(name: String) -> int:
 	match name:
 		"PlayerNotAtFacilityLobby": return int(Vector2i(objects.camera.group, objects.camera.number) != (TRAINER_TOWER_LOBBY if avatar.frlg else TRAINER_HILL_ENTRANCE))
@@ -933,12 +1003,34 @@ func _player_special(name: String) -> int:
 			if _selected() != null and _selected().held_movement_active:
 				Gen3ObjectEvents.clear_held_movement(_selected())
 		"CountPlayerTrainerStars": return int(objects.events.stats.get(Gen3FieldInput.GAME_STAT_ENTERED_HOF, 0) != 0) # Pokedex, paintings and symbols have no models.
+		"NameRival": # naming_screen.c::NameRival pre-fills the rival's name with Silver and opens the rival naming screen; confirming renames him, backing out keeps the prefilled name.
+			if objects.events.rival_name.is_empty():
+				objects.events.rival_name = "Silver"
+			_screen_special(name, {"dest": "rival", "nickname": objects.events.rival_name})
 		_: _screen_special(name)
 	return 0
 
 
-func _screen_special(name: String) -> void: # Opens the screen [param name] does; one without a `waitstate` after it is `ScriptContext_Stop`, so resume() when closed.
-	_output.append({"kind": "field_special", "name": name})
+func _nickname_special() -> void: # pokemon.c::ChangePokemonNicknameWithCallback opens the naming screen on the party mon VAR_0x8004 names, prefilled with its nickname; the screen writes the entered name back on confirm.
+	var events: Gen3EventData = objects.events
+	var slot: int = events.var_get(VAR_0X8004)
+	if slot < 0 or slot >= events.party.size():
+		slot = events.party.size() - 1
+	if slot < 0:
+		_screen_special("ChangePokemonNickname")
+		return
+	var mon: Dictionary = events.party[slot]
+	# The nickname call sites fade the field to black first
+	# (Common_EventScript_NameReceivedPartyMon), so the screen fades it back.
+	_screen_special("ChangePokemonNickname", {"dest": "mon", "slot": slot,
+		"species": int(mon.get("species", 0)), "nickname": String(mon.get("nickname", "")),
+		"fade_back": true})
+
+
+func _screen_special(name: String, extra: Dictionary = {}) -> void: # Opens the screen [param name] does; one without a `waitstate` after it is `ScriptContext_Stop`, so resume() when closed.
+	var row: Dictionary = {"kind": "field_special", "name": name}
+	row.merge(extra)
+	_output.append(row)
 	if name not in TIMED_SPECIALS and objects.camera.data.world_script_instruction(_executing.offset).get("command", "") != "waitstate":
 		_executing.state = Gen3ScriptContext.State.WAITING
 

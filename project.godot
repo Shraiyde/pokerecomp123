@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="pokerecomp"
-config/version="0.1.87"
+config/version="0.1.104"
 run/main_scene="res://game/main/main.tscn"
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.8", "GL Compatibility")
@@ -31,8 +31,10 @@ gdscript/warnings/integer_division=0
 
 [display]
 
+window/size/viewport_width=720
+window/size/viewport_height=1560
 window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
+window/stretch/aspect="ignore"
 window/handheld/orientation=6
 
 [editor_plugins]

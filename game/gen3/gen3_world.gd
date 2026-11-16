@@ -413,7 +413,7 @@ static func _keep(rom: RomFile, graphics: Dictionary, at: int, bytes: int) -> bo
 	return true
 
 
-static func _door_graphics(rom: RomFile, layout: Dictionary, out: Dictionary, graphics: Dictionary) -> bool: # `DoorGraphics` to its null tiles pointer; Ruby's `size` byte is padding.
+static func _door_graphics(rom: RomFile, layout: Dictionary, out: Dictionary, graphics: Dictionary) -> bool: # `DoorGraphics` to its null tiles pointer; H&S rows are 20 B with sound +8 and size +9, vanilla 12 B rows keep +2/+3.
 	var frlg: bool = rom.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN]
 	var ruby: bool = rom.id in [RomRegistry.RUBY, RomRegistry.SAPPHIRE]
 	var at: int = int(layout["door_graphics"])
@@ -421,17 +421,19 @@ static func _door_graphics(rom: RomFile, layout: Dictionary, out: Dictionary, gr
 	var row_bytes: int = int(layout.get("door_row_bytes", Gen3FieldDoor.ROW_BYTES))
 	var tiles_off: int = 12 if row_bytes == 20 else 4
 	var palettes_off: int = 16 if row_bytes == 20 else 8
+	var sound_off: int = 8 if row_bytes == 20 else 2
+	var size_off: int = 9 if row_bytes == 20 else 3
 	graphics["doors"] = {}
 	out["doors"] = []
 	while rom.in_bounds(at, row_bytes) and rom.u32le(at + tiles_off) != 0:
-		var big: bool = not ruby and rom.u8(at + 3) == (1 if frlg else 2)
+		var big: bool = not ruby and rom.u8(at + size_off) == (1 if frlg else 2)
 		var bytes: int = Gen3FieldDoor.FRAME_COUNT * (2 if big else 1) * Gen3FieldDoor.FRAME_TILES[int(frlg)] * GbaTiles.TILE_BYTES
 		var tiles: int = Gen3Layout.read_pointer(rom, at + tiles_off, bytes, 1)
 		var palettes: int = Gen3Layout.read_pointer(rom, at + palettes_off, Gen3FieldDoor.PALETTE_BYTES, 1)
 		if tiles < 0 or palettes < 0:
 			return false
 		graphics["doors"][str(tiles)] = {"bytes": Array(rom.slice(tiles, bytes))}
-		out["doors"].append({"metatile": rom.u16le(at), "sound": rom.u8(at + 2), "big": big, "tiles": tiles,
+		out["doors"].append({"metatile": rom.u16le(at), "sound": rom.u8(at + sound_off), "big": big, "tiles": tiles,
 			"palettes": Array(rom.slice(palettes, Gen3FieldDoor.PALETTE_BYTES))})
 		at += row_bytes
 	return not out["doors"].is_empty()
