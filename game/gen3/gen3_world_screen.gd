@@ -88,7 +88,9 @@ func _open_field(data: GameData) -> Gen3FieldView:
 			var resumed := Gen3FieldView.open_from_save(data, loaded["save"])
 			if resumed != null:
 				return resumed
-			return null
+			# A save that will not open is a fresh start rather than a dead
+			# screen: fall through to the bedroom below instead of booting
+			# back to the launcher with nothing loaded.
 	var view := Gen3FieldView.open(data, START_GROUP, START_NUMBER, START_CELL)
 	if view != null:
 		view.screen.save_slot = maxi(slot, 0)
