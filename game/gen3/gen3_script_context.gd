@@ -241,6 +241,8 @@ func _story_command(command: String, args: Array) -> bool:
 			if args.is_empty():
 				return false
 			var species: int = _events.var_get(int(args[0]))
+			if _events.randomizer_on("starter"):
+				species = Gen3Randomizer.species_for(_events, species, _data.species_count())
 			var level: int = 5 if command != "givemon" else _events.var_get(int(args[1])) if args.size() > 1 else 5
 			if species <= 0 or _data.species(species).is_empty() or level < 1 or level > 100 \
 					or _events.party.size() >= PARTY_SIZE:
@@ -273,7 +275,12 @@ func _story_command(command: String, args: Array) -> bool:
 			_events.var_set(0x8000, _events.clock_hour)
 			_events.var_set(0x8001, _events.clock_minute)
 			_events.var_set(0x8002, 0)
-		"checkrandomizer", "checknuzlocke":
+		"checkrandomizer":
+			var any_on: int = int(_events.randomizer.values().any(
+				func(value: Variant) -> bool: return bool(value)))
+			_events.var_set(VAR_RESULT, any_on)
+			comparison = any_on
+		"checknuzlocke":
 			_events.var_set(VAR_RESULT, 0)
 			comparison = 0
 		"setwildbattle", "setwildbattleshiny":
@@ -307,7 +314,11 @@ func _callnative(args: Array) -> bool: # `callnative` (0x23): the function point
 		0x0820CD59: return _createmon(args) # ScrCmd_createmon.
 		0x0812DC11: return true # UpdateFollowingPokemon: no follower model yet; the starter script only needs it to pass.
 		0x08160895: return true # ShowHelpInfoWindow: no help-window UI; the clock trigger only needs it to pass.
-		0x081F1DA5: return true # ObtainItemRandomize_NativeCall: no randomizer model; the item in VAR_0x8000 is left unchanged for additem.
+		0x081F1DA5: # ObtainItemRandomize_NativeCall: the item in VAR_0x8000 is swapped for additem.
+			if _events.randomizer_on("items"):
+				_events.var_set(0x8000, Gen3Randomizer.item_for(_events,
+					_events.var_get(0x8000), 900))
+			return true
 		_: return false
 
 

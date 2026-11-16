@@ -38,6 +38,10 @@ var bag: Gen3Bag # `gSaveBlock1Ptr`'s items, money and coins; hosts create it, s
 var party: Array[Dictionary] = [] # `gPlayerParty`: `species`, `nickname`, `moves`, `egg`, `hp`, `personality` and `ot_id`, with no empty rows.
 var player_name: String = ""
 var player_gender: int = 0 # `gSaveBlock2Ptr->playerGender`: 0 boy, 1 girl, chosen in the intro.
+## The challenge menu's randomizer switches (`struct ChallengeSettings`'s
+## `tx_Random_*`), chosen when the game starts; the seed itself rides in
+## vars 0x40FA/0x40FB, where the ROM keeps it. All off is a vanilla game.
+var randomizer: Dictionary = {"wild": false, "trainer": false, "items": false, "starter": false}
 var rival_name: String = "" # FireRed and LeafGreen's `gSaveBlock1Ptr->rivalName`.
 var registered_item: int = 0 # `gSaveBlock1Ptr->registeredItem`.
 var respawn: int = 0 # `gSaveBlock1Ptr->lastHealLocation`'s `HEAL_LOCATION_*`.
@@ -54,6 +58,11 @@ var _vars: Dictionary = {}
 
 func _init(game_id: StringName) -> void:
 	game = game_id
+
+
+## `RandomizerFeatureEnabled` for one `tx_Random_*` switch.
+func randomizer_on(feature: String) -> bool:
+	return bool(randomizer.get(feature, false))
 
 
 func flag_get(id: int) -> bool:
@@ -113,6 +122,7 @@ func to_dict() -> Dictionary: # `gSaveBlock1Ptr`'s flags, vars, party, bag, name
 		"bag": bag.to_dict() if bag != null else {},
 		"player_name": player_name,
 		"player_gender": player_gender,
+		"randomizer": randomizer.duplicate(),
 		"rival_name": rival_name,
 		"registered_item": registered_item,
 		"respawn": respawn,
@@ -198,6 +208,10 @@ static func from_dict(raw: Variant, data: GameData) -> Gen3EventData:
 	events.player_gender = int(source.get("player_gender", 0))
 	if events.player_gender < 0 or events.player_gender > 1:
 		return null
+	var randomizer_raw: Variant = source.get("randomizer", {})
+	if randomizer_raw is Dictionary:
+		for feature: String in events.randomizer:
+			events.randomizer[feature] = bool((randomizer_raw as Dictionary).get(feature, false))
 	events.rival_name = String(source.get("rival_name", ""))
 	if events.player_name.length() > 10 or events.rival_name.length() > 10:
 		return null

@@ -191,7 +191,10 @@ func _generate(info: Dictionary, method: StringName) -> Dictionary: # TryGenerat
 	var level: int = _level(row)
 	if not _allowed_by_repel(level) or _engine == &"emerald" and _keen_eye_refuses(level):
 		return {}
-	return {"species": int(row["species"]), "level": level, "area": String(method)}
+	var species: int = int(row["species"])
+	if _events.randomizer_on("wild"):
+		species = Gen3Randomizer.species_for(_events, species, _data.species_count())
+	return {"species": species, "level": level, "area": String(method)}
 
 
 func _influenced_slot(slots: Array, method: StringName) -> int: # TryGetAbilityInfluencedWildMonIndex; pret's non-BUGFIX build scans 12 water rows, past the table's five.

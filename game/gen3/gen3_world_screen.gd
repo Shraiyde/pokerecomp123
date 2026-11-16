@@ -54,7 +54,7 @@ func _ready() -> void:
 
 ## The intro is done: the staged slot is consumed and the field opens in
 ## the bedroom with the chosen name and gender.
-func _on_intro_finished(player_name: String, gender: int) -> void:
+func _on_intro_finished(player_name: String, gender: int, randomizer: Dictionary, seed: int) -> void:
 	var runtime: Gen2GameRuntime = Gen2GameRuntime.instance()
 	var pending: Dictionary = runtime.take_pending_new_game() if runtime != null \
 		else {"slot": -1}
@@ -63,7 +63,7 @@ func _on_intro_finished(player_name: String, gender: int) -> void:
 		_intro.queue_free()
 		_intro = null
 	_view = Gen3FieldView.open_new(_data, START_GROUP, START_NUMBER, START_CELL,
-		player_name, gender)
+		player_name, gender, randomizer, seed)
 	if _view == null:
 		_back_to_launcher()
 		return
