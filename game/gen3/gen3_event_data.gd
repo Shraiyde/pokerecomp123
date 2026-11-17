@@ -44,6 +44,7 @@ var player_gender: int = 0 # `gSaveBlock2Ptr->playerGender`: 0 boy, 1 girl, chos
 var randomizer: Dictionary = {"wild": false, "trainer": false, "items": false, "starter": false}
 var nuzlocke: bool = false # The challenge menu's nuzlocke switch; its catch/death rules ride the battle model.
 var nuzlocke_seen: Array = [] # Map keys ("group:number") whose first encounter already happened.
+var visited_spots: Dictionary = {} # Region section id -> [map group, number, layout x, y] last stood in; the Pokégear map and the fly list.
 var pc_boxes: Array = [] # Caught mons past a full party, the ROM's storage boxes in one list.
 var safari_balls: int = 0 # This visit's Safari Balls; the gate refills them.
 var rival_name: String = "" # FireRed and LeafGreen's `gSaveBlock1Ptr->rivalName`.
@@ -53,6 +54,7 @@ var battle_outcome: int = 0 # `gBattleOutcome`.
 var last_wild: Dictionary = {} # The last wild roll, for a ball thrown at it.
 var dex_seen: Array = [] # National numbers met in battle, `GetSetPokedexFlag ... FLAG_GET_SEEN`.
 var dex_caught: Array = [] # National numbers owned, `... FLAG_GET_CAUGHT`.
+var heal_spot: Dictionary = {} # Last Pokécenter: map group/number and layout cell for the white-out warp.
 var clock_hour: int = 12 # The wall clock's hour, set by `StartWallClock`; the RTC the story flags read.
 var clock_minute: int = 0 # The wall clock's minute, set by `StartWallClock`.
 var mom_balance: int = 0 # `gSaveBlock1Ptr->momSavings.momsMoney`; no deposit/withdraw input screen exists yet, so nothing changes it.
@@ -152,7 +154,9 @@ func to_dict() -> Dictionary: # `gSaveBlock1Ptr`'s flags, vars, party, bag, name
 		"randomizer": randomizer.duplicate(),
 		"nuzlocke": nuzlocke,
 		"nuzlocke_seen": nuzlocke_seen.duplicate(),
+		"visited_spots": visited_spots.duplicate(true),
 		"pc_boxes": pc_boxes.duplicate(true),
+		"heal_spot": heal_spot.duplicate(),
 		"dex_seen": dex_seen.duplicate(),
 		"dex_caught": dex_caught.duplicate(),
 		"rival_name": rival_name,
@@ -257,6 +261,19 @@ static func from_dict(raw: Variant, data: GameData) -> Gen3EventData:
 		for member: Variant in boxes_raw as Array:
 			if member is Dictionary and int((member as Dictionary).get("species", 0)) > 0:
 				events.pc_boxes.append((member as Dictionary).duplicate(true))
+	var visited_raw: Variant = source.get("visited_spots", {})
+	if visited_raw is Dictionary:
+		for key: Variant in visited_raw as Dictionary:
+			var spot: Variant = (visited_raw as Dictionary)[key]
+			if spot is Array and (spot as Array).size() == 4:
+				events.visited_spots[int(key)] = (spot as Array).duplicate()
+	var spot_raw: Variant = source.get("heal_spot", {})
+	if spot_raw is Dictionary and int((spot_raw as Dictionary).get("group", -1)) >= 0 \
+			and int((spot_raw as Dictionary).get("number", -1)) >= 0:
+		events.heal_spot = {"group": int((spot_raw as Dictionary).get("group", 0)),
+			"number": int((spot_raw as Dictionary).get("number", 0)),
+			"x": int((spot_raw as Dictionary).get("x", 0)),
+			"y": int((spot_raw as Dictionary).get("y", 0))}
 	var seen_raw: Variant = source.get("nuzlocke_seen", [])
 	if seen_raw is Array:
 		for key: Variant in seen_raw as Array:

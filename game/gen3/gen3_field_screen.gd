@@ -95,6 +95,12 @@ static func open_from_save(game: GameData, save: Gen3SaveData) -> Gen3FieldScree
 
 
 func frame(held: Array[int] = [], pressed: Array[int] = []) -> Array: # One frame: `CB1_Overworld`, then `OverworldBasic` and VBlank's palette transfer. What the field could not answer returns.
+	var section: int = int(host.objects.camera.header.get("region_map_section", -1))
+	if section >= 0:
+		var player: Gen3ObjectEvents.ObjectEvent = host.avatar.object()
+		host.objects.events.visited_spots[section] = [host.objects.camera.group,
+			host.objects.camera.number, player.current.x - Gen3MapGrid.MAP_OFFSET,
+			player.current.y - Gen3MapGrid.MAP_OFFSET]
 	var avatar: Gen3PlayerAvatar = host.avatar
 	var previous: Vector2i = avatar.object().pixel_position
 	_keys_held = PokeButton.A in held or PokeButton.B in held

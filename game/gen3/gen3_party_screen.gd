@@ -8,6 +8,7 @@ extends Control
 ## below. B always steps back out.
 
 signal chosen(index: int)
+signal fly_requested(index: int)
 signal cancelled
 
 var _events: Gen3EventData = null
@@ -16,6 +17,7 @@ var _purpose: String = "view"
 var _rows: VBoxContainer = null
 var _detail: Label = null
 var _cursor: int = 0
+var _summary_index: int = -1
 
 
 func setup(data: GameData, events: Gen3EventData, purpose: String = "view") -> void:
@@ -120,12 +122,24 @@ func _usable(index: int) -> bool:
 	return true
 
 
+func _knows_fly(index: int) -> bool:
+	if index < 0 or index >= _events.party.size():
+		return false
+	for move_id: Variant in (_events.party[index].get("moves", []) as Array):
+		if String(_data.move(int(move_id)).get("name", "")) == "FLY":
+			return true
+	return false
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"gen2_b"):
 		cancelled.emit()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed(&"gen2_a"):
-		if _purpose == "view" or not _usable(_cursor):
+		if _purpose == "view" and _summary_index == _cursor and _knows_fly(_cursor):
+			fly_requested.emit(_cursor)
+		elif _purpose == "view" or not _usable(_cursor):
+			_summary_index = _cursor
 			_show_summary(_cursor)
 		else:
 			chosen.emit(_cursor)

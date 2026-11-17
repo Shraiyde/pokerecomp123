@@ -237,5 +237,9 @@ func _apply_skin_layout(pad: Control) -> void:
 	pad.set_layout(layout)
 
 
+func go_launcher() -> void:
+	_back_to_launcher()
+
+
 func _back_to_launcher() -> void:
 	get_tree().change_scene_to_file.call_deferred(LAUNCHER_SCENE)

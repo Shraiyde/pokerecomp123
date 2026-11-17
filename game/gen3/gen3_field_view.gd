@@ -61,7 +61,7 @@ static func _wrap(field: Gen3FieldScreen) -> Gen3FieldView:
 
 
 func _process(delta: float) -> void:
-	if _wall_clock != null or _naming != null or _battle != null or _menu_screen != null or _money != null:
+	if _wall_clock != null or _naming != null or _battle != null or _menu_screen != null or _money != null or _fly_screen != null:
 		return
 	_clock += delta
 	var frames: int = mini(int(_clock / FRAME_SECONDS), MAX_CATCH_UP)
@@ -129,9 +129,10 @@ func _open_menu_screen(action: String) -> void:
 			dex.setup(screen.data, screen.host.objects.events)
 			_menu_screen = dex
 		"pokemon":
-			var party := Gen3PartyScreen.new()
-			party.setup(screen.data, screen.host.objects.events, "view")
-			_menu_screen = party
+			_menu_party = Gen3PartyScreen.new()
+			_menu_party.setup(screen.data, screen.host.objects.events, "view")
+			_menu_party.fly_requested.connect(_on_fly_requested)
+			_menu_screen = _menu_party
 		"bag":
 			var bag := Gen3BagScreen.new()
 			bag.setup(screen.data, screen.host.objects.events.bag)
@@ -152,13 +153,70 @@ func _open_menu_screen(action: String) -> void:
 		_menu_screen.cancelled.connect(_close_menu_screen)
 	if _menu_screen.has_signal("closed"):
 		_menu_screen.closed.connect(_close_menu_screen)
+	if _menu_screen == _menu_party:
+		return # The party screen stays up under its own flows; they close it.
 
 
 func _close_menu_screen() -> void:
 	if _menu_screen != null:
 		_menu_screen.queue_free()
 		_menu_screen = null
+	if _menu_party != null and not is_instance_valid(_menu_party):
+		_menu_party = null
+	elif _menu_screen == null:
+		_menu_party = null
 	screen.return_to_start_menu()
+
+
+var _fly_screen: Gen3FlyScreen = null
+
+
+## Fly: second A on a summary whose mon knows FLY opens the
+## destination list; landing runs the same warp a white-out uses.
+func _on_fly_requested(_index: int) -> void:
+	if _fly_screen != null:
+		return
+	_fly_screen = Gen3FlyScreen.new()
+	_fly_screen.setup(screen.data, screen.host.objects.events)
+	get_parent().add_child(_fly_screen)
+	_fly_screen.chosen.connect(_on_fly_chosen)
+	_fly_screen.cancelled.connect(_on_fly_cancelled)
+	_fly_screen.visible = true
+	move_child(_fly_screen, get_child_count() - 1)
+
+
+func _on_fly_chosen(section: int) -> void:
+	_close_fly_screen()
+	_warp_to_spot(section)
+
+
+func _on_fly_cancelled() -> void:
+	_close_fly_screen()
+
+
+func _close_fly_screen() -> void:
+	if _fly_screen != null:
+		_fly_screen.queue_free()
+		_fly_screen = null
+
+
+func _warp_to_spot(section: int) -> void:
+	var spot: Variant = screen.host.objects.events.visited_spots.get(section, [])
+	if not spot is Array or (spot as Array).size() != 4:
+		return
+	if _menu_party != null:
+		_menu_party.queue_free()
+		_menu_party = null
+	if _menu_screen != null:
+		_menu_screen.queue_free()
+		_menu_screen = null
+	screen.host.warps.destination = Gen3Warp.record(int((spot as Array)[0]), int((spot as Array)[1]), -1,
+		int((spot as Array)[2]), int((spot as Array)[3]))
+	screen.host.warp_pending = true
+	screen.load_warp()
+	screen.weather.fade_screen(Gen3FieldWeather.Fade.FROM_BLACK, 0)
+	screen.host.unfreeze_field()
+	screen.host.resume()
 
 
 ## Field bag use: medicine opens the party to pick a target, balls and
@@ -167,9 +225,8 @@ func _on_field_bag_chosen(item: int) -> void:
 	_field_item = item
 	if item <= 0:
 		return
-	var info: Dictionary = screen.data.item(item)
-	var kind: String = Gen3BattleScreen.medicine_kind_for(screen.data, item)
-	if kind == "none":
+	var kind: Dictionary = Gen3BattleScreen.medicine_kind_for(screen.data, item)
+	if String(kind.get("kind", "none")) == "none":
 		return # Balls, TMs and key items wait for their own screens.
 	_menu_party = Gen3PartyScreen.new()
 	_menu_party.setup(screen.data, screen.host.objects.events, "item")
@@ -210,9 +267,11 @@ func _on_battle_finished(outcome: int, is_trainer: bool) -> void:
 		_settle_result(screen.host.finish_wild_battle(outcome))
 
 
-## A battle's aftermath: a white out heals the party where it stands
-## (the heal-point warp is not modelled yet) and gives the field back,
-## so a loss never leaves the player locked in a stopped script.
+## A battle's aftermath: a white out heals the party and warps back
+## to the last Pokécenter visited (or heals where the run stands when
+## none was), then gives the field back, so a loss never leaves the
+## player locked in a stopped script. A nuzlocke with nothing usable
+## left is over: the run ends at the launcher, save intact.
 func _settle_result(rows: Array) -> void:
 	for row: Dictionary in rows:
 		if String(row.get("kind", "")) != "white_out":
@@ -221,8 +280,43 @@ func _settle_result(rows: Array) -> void:
 			if bool(mon.get("dead", false)):
 				continue # The nuzlocke dead stay dead; a heal is not a revive.
 			mon["hp"] = Gen3BattleResolver.max_hp(screen.data, mon)
+		if _nuzlocke_run_over():
+			_white_out_to_launcher()
+			return
+		_white_out_respawn()
 		screen.host.unfreeze_field()
 		screen.host.resume()
+
+
+func _nuzlocke_run_over() -> bool:
+	var events: Gen3EventData = screen.host.objects.events
+	if not events.nuzlocke:
+		return false
+	for mon: Dictionary in events.party:
+		if not bool(mon.get("egg", false)) and not bool(mon.get("dead", false)) and int(mon.get("hp", 0)) > 0:
+			return false
+	return not events.party.is_empty()
+
+
+func _white_out_to_launcher() -> void:
+	var launcher: Node = get_parent()
+	if launcher != null and launcher.has_method("go_launcher"):
+		launcher.go_launcher()
+
+
+func _white_out_respawn() -> void:
+	var events: Gen3EventData = screen.host.objects.events
+	var spot: Dictionary = events.heal_spot
+	if spot.is_empty():
+		return
+	var camera: Gen3FieldCamera = screen.host.objects.camera
+	if int(spot.get("group", -1)) == camera.group and int(spot.get("number", -1)) == camera.number:
+		return # Already home: the heal above is the whole trip.
+	screen.host.warps.destination = Gen3Warp.record(int(spot["group"]), int(spot["number"]), -1,
+		int(spot.get("x", 0)), int(spot.get("y", 0)))
+	screen.host.warp_pending = true
+	screen.load_warp()
+	screen.weather.fade_screen(Gen3FieldWeather.Fade.FROM_BLACK, 0)
 
 
 func _settle(row: Dictionary) -> void:

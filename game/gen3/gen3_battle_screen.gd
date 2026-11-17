@@ -109,8 +109,8 @@ func _ready() -> void:
 	_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_text.custom_minimum_size = Vector2(0, 120)
 	_menu_label = _label(body, 22)
-	if not _is_link():
-		events.dex_mark(int(_foes[0].get("species", 0)), false)
+	if not _is_link() and not _foes.is_empty():
+		events.dex_mark(int((_foes[0] as Dictionary).get("species", 0)), false)
 	_next_foe()
 	_push_ally(0)
 	if _ally.is_empty():
@@ -371,11 +371,14 @@ func _party_hps() -> Array:
 
 
 func _drain_link_rounds() -> void:
-	while not _link.inbox.is_empty():
-		var msg: Dictionary = _link.inbox.pop_front()
-		if String(msg.get("type", "")) == "round":
+	var kept: Array = []
+	for msg: Variant in _link.inbox:
+		if msg is Dictionary and String((msg as Dictionary).get("type", "")) == "round":
 			_link_remote = msg
 			_sync_foe_hp(msg)
+		else:
+			kept.append(msg)
+	_link.inbox = kept
 
 
 ## The peer's HP array keeps this side's record of their party, so a
@@ -426,7 +429,13 @@ func _apply_link_switch(choice: Dictionary, own_side: bool) -> void:
 		return
 	if own_side:
 		_write_ally()
-		_push_ally(int(choice.get("slot", 0)))
+		var slot: int = int(choice.get("slot", -1))
+		var built_index: int = 0
+		for built: int in _allies.size():
+			if int((_allies[built] as Dictionary).get("party_index", -1)) == slot:
+				built_index = built
+				break
+		_push_ally(built_index)
 		_say("Come back! Go! %s!" % _ally_name())
 	else:
 		var slot: int = int(choice.get("slot", -1))
@@ -716,7 +725,7 @@ static func apply_medicine(data: GameData, events: Gen3EventData, mon: Dictionar
 ## half restores, revives (half unless the text promises full), and the
 ## flat "by N" amounts. Anything else is not field medicine.
 static func medicine_kind_for(data: GameData, item: int) -> Dictionary:
-	var text: String = String(_data.item(item).get("description", "")).to_upper()
+	var text: String = String(data.item(item).get("description", "")).to_upper()
 	if text.contains("REVIVE"):
 		return {"kind": "revive", "full": text.contains("FULLY") or text.contains("FULL HP")}
 	if text.contains("FULLY") or text.contains("FULL HP"):

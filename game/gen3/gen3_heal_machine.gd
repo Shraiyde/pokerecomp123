@@ -86,8 +86,14 @@ func run_task() -> void:
 
 
 ## Nurse Joy's machine does what the glow promises: every party mon back
-## to full HP and cured. The nuzlocke dead stay dead.
+## to full HP and cured. The nuzlocke dead stay dead. The counter is also
+## the white-out respawn: the map and cell the run continues from.
 func _restore_party() -> void:
+	for object: Gen3ObjectEvents.ObjectEvent in _objects.objects:
+		if object.active and object.is_player:
+			_objects.events.heal_spot = {"group": _objects.camera.group, "number": _objects.camera.number,
+				"x": object.current.x - Gen3MapGrid.MAP_OFFSET, "y": object.current.y - Gen3MapGrid.MAP_OFFSET}
+			break
 	for mon: Dictionary in _objects.events.party:
 		if bool(mon.get("dead", false)):
 			mon["hp"] = 0
