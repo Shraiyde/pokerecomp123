@@ -84,6 +84,21 @@ func advance() -> void:
 		_settle(row)
 
 
+## A battle's aftermath: a white out heals the party where it stands
+## (the heal-point warp is not modelled yet) and gives the field back,
+## so a loss never leaves the player locked in a stopped script.
+func _settle_result(rows: Array) -> void:
+	for row: Dictionary in rows:
+		if String(row.get("kind", "")) != "white_out":
+			continue
+		for mon: Dictionary in screen.host.objects.events.party:
+			if bool(mon.get("dead", false)):
+				continue # The nuzlocke dead stay dead; a heal is not a revive.
+			mon["hp"] = Gen3BattleResolver.max_hp(screen.data, mon)
+		screen.host.unfreeze_field()
+		screen.host.resume()
+
+
 func _settle(row: Dictionary) -> void:
 	var kind: String = row["kind"]
 	if kind not in REPORTED:
@@ -100,9 +115,16 @@ func _settle(row: Dictionary) -> void:
 			else:
 				screen.return_to_start_menu()
 		"trainer_battle":
-			screen.host.finish_battle(Gen3TrainerBattle.Outcome.WON)
+			var foes: Array = []
+			foes.append_array(row.get("party_a", []))
+			foes.append_array(row.get("party_b", []))
+			var outcome: int = Gen3BattleResolver.resolve(screen.data,
+				screen.host.objects.events, foes)
+			_settle_result(screen.host.finish_battle(outcome))
 		"wild_battle":
-			screen.host.finish_wild_battle(Gen3TrainerBattle.Outcome.WON)
+			var wild_outcome: int = Gen3BattleResolver.resolve_wild(screen.data,
+				screen.host.objects.events, int(row.get("species", 0)), int(row.get("level", 5)))
+			_settle_result(screen.host.finish_wild_battle(wild_outcome))
 		"mart":
 			screen.host.finish_wait()
 		"field_special":
