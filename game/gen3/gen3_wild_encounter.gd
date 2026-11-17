@@ -194,10 +194,12 @@ func _generate(info: Dictionary, method: StringName, map: Vector2i = Vector2i(-1
 	var species: int = int(row["species"])
 	if _events.randomizer_on("wild"):
 		species = Gen3Randomizer.species_for(_events, species, _data.species_count())
-	var out: Dictionary = {"species": species, "level": level, "area": String(method)}
+		var out: Dictionary = {"species": species, "level": level, "area": String(method)}
 	if _events.nuzlocke:
 		# Only the first encounter on a map may ever be caught.
 		out["nuzlocke_first"] = _events.nuzlocke_encounter("%d:%d" % [map.x, map.y])
+	else:
+		out["nuzlocke_first"] = true
 	return out
 
 

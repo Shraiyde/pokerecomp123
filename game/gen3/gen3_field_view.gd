@@ -84,6 +84,40 @@ func advance() -> void:
 		_settle(row)
 
 
+## A wild mon steps out: FIGHT runs the damage sim, BALL spends the
+## first ball in the bag and throws it, RUN walks away. The choice is
+## immediate (a full battle menu is not modelled yet); RUN and a failed
+## throw both run the resolver for the round that followed.
+func _open_catch_confirm(row: Dictionary) -> void:
+	var events: Gen3EventData = screen.host.objects.events
+	var bag: Gen3Bag = events.bag
+	var ball: int = 1 if bag != null and bag.has(1, 1) else 0 # ITEM_POKE_BALL in the H&S item table.
+	_open_catch_row(row, ball)
+
+
+func _open_catch_row(row: Dictionary, ball: int) -> void:
+	var events: Gen3EventData = screen.host.objects.events
+	var caught: Dictionary = {}
+	if ball > 0 and events.bag.remove(ball, 1):
+		caught = Gen3CatchResolver.try_catch(screen.data, events,
+			int(row.get("species", 0)), int(row.get("level", 5)), _wild_hp_estimate(row), ball)
+	if not caught.is_empty() and events.party.size() < 6:
+		caught["hp"] = int(caught.get("hp", 0))
+		events.party.append(caught)
+		screen.host.unfreeze_field()
+		screen.host.resume()
+		return
+	var wild_outcome: int = Gen3BattleResolver.resolve_wild(screen.data,
+		events, int(row.get("species", 0)), int(row.get("level", 5)))
+	_settle_result(screen.host.finish_wild_battle(wild_outcome))
+
+
+## The wild mon's remaining HP for the catch formula: the resolver
+## mutates a copy, so this asks it for the foe it fought last, else full.
+func _wild_hp_estimate(row: Dictionary) -> int:
+	return int(row.get("hp", 0)) if int(row.get("hp", 0)) > 0 else 9999
+
+
 ## A battle's aftermath: a white out heals the party where it stands
 ## (the heal-point warp is not modelled yet) and gives the field back,
 ## so a loss never leaves the player locked in a stopped script.
@@ -122,9 +156,7 @@ func _settle(row: Dictionary) -> void:
 				screen.host.objects.events, foes)
 			_settle_result(screen.host.finish_battle(outcome))
 		"wild_battle":
-			var wild_outcome: int = Gen3BattleResolver.resolve_wild(screen.data,
-				screen.host.objects.events, int(row.get("species", 0)), int(row.get("level", 5)))
-			_settle_result(screen.host.finish_wild_battle(wild_outcome))
+			_open_catch_confirm(row)
 		"mart":
 			screen.host.finish_wait()
 		"field_special":

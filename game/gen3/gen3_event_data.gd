@@ -48,6 +48,7 @@ var rival_name: String = "" # FireRed and LeafGreen's `gSaveBlock1Ptr->rivalName
 var registered_item: int = 0 # `gSaveBlock1Ptr->registeredItem`.
 var respawn: int = 0 # `gSaveBlock1Ptr->lastHealLocation`'s `HEAL_LOCATION_*`.
 var battle_outcome: int = 0 # `gBattleOutcome`.
+var last_wild: Dictionary = {} # The last wild roll, for a ball thrown at it.
 var clock_hour: int = 12 # The wall clock's hour, set by `StartWallClock`; the RTC the story flags read.
 var clock_minute: int = 0 # The wall clock's minute, set by `StartWallClock`.
 var mom_balance: int = 0 # `gSaveBlock1Ptr->momSavings.momsMoney`; no deposit/withdraw input screen exists yet, so nothing changes it.

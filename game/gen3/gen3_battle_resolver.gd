@@ -61,8 +61,76 @@ static func resolve(data: GameData, events: Gen3EventData, enemies: Array) -> in
 			ally_index += 1
 	for built: Dictionary in allies:
 		_write_back(built)
-	return Gen3TrainerBattle.Outcome.WON if foe_index >= foes.size() \
-		else Gen3TrainerBattle.Outcome.LOST
+	if foe_index < foes.size():
+		return Gen3TrainerBattle.Outcome.LOST
+	_grant_exp(data, events, allies, foes)
+	return Gen3TrainerBattle.Outcome.WON
+
+
+## EXP like the ROM awards it: every fainted foe's base EXP at its
+## level, split across the party that fought, then level-ups on the six
+## ROM growth curves with level-up moves learned as they come.
+static func _grant_exp(data: GameData, events: Gen3EventData, allies: Array, foes: Array) -> void:
+	var fought: Array = []
+	for built: Dictionary in allies:
+		if built.has("party_ref"):
+			fought.append(built["party_ref"])
+	if fought.is_empty():
+		return
+	for foe: Dictionary in foes:
+		var total: int = int(data.species(int(foe["species"])).get("base_exp", 0)) * int(foe["level"]) / 7
+		for mon: Dictionary in fought:
+			var share: int = total / fought.size()
+			var curve: int = int(data.species(int(mon["species"])).get("growth_rate", 0))
+			var exp: int = int(mon.get("exp", _curve_exp(curve, int(mon["level"]))))
+			exp += share
+			var level: int = int(mon["level"])
+			while level < 100 and exp >= _curve_exp(curve, level + 1):
+				level += 1
+				_learn_level_moves(data, mon, level)
+			mon["level"] = level
+			mon["exp"] = exp
+
+
+## Cumulative EXP for [param level] on a growth curve, exactly the ROM's
+## six formulas (0 medium-fast through 5 slow).
+static func _curve_exp(curve: int, level: int) -> int:
+	var n: int = maxi(level, 1)
+	match curve:
+		1: # Erratic.
+			if n <= 50:
+				return n * n * n * (100 - n) / 50
+			if n <= 68:
+				return n * n * n * (150 - n) / 100
+			if n <= 98:
+				return n * n * n * ((1911 - 10 * n) / 3) / 500
+			return n * n * n * (160 - n) / 100
+		2: # Fluctuating.
+			if n <= 15:
+				return n * n * n * ((n + 73) / 24) / 50
+			if n <= 36:
+				return n * n * n * (n + 14) / 50
+			return n * n * n * (n / 2 + 32) / 50
+		3: # Medium-slow.
+			return n * n * n * 6 / 5 - 15 * n * n + 100 * n - 140
+		4: # Fast.
+			return n * n * n * 4 / 5
+		5: # Slow.
+			return n * n * n * 5 / 4
+	return n * n * n # Medium-fast.
+
+
+static func _learn_level_moves(data: GameData, mon: Dictionary, level: int) -> void:
+	var moves: Array = (mon.get("moves", []) as Array).duplicate()
+	for learned: Dictionary in data.learnset(int(mon["species"])):
+		if int(learned.get("level", 0)) != level or int(learned.get("move", 0)) <= 0:
+			continue
+		if int(learned["move"]) in moves:
+			continue
+		moves.append(int(learned["move"]))
+		while moves.size() > 4:
+			moves.pop_front()
+	mon["moves"] = moves
 
 
 ## A party row's full HP at its level, for heals.

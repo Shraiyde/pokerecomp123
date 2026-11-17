@@ -401,6 +401,9 @@ func _check_wild(requests: Array) -> bool: # CheckStandardWildEncounter, then Ba
 	freeze_for_menu()
 	objects.events.controls_locked = true
 	mon["kind"] = "wild_battle"
+	# The last wild roll is remembered so a ball thrown at it resolves
+	# against the same mon at its remaining HP.
+	objects.events.last_wild = mon.duplicate()
 	requests.append(mon)
 	return true
 
