@@ -211,7 +211,7 @@ func _write_save() -> Dictionary:
 	var cell: Vector2i = player.current - Vector2i.ONE * Gen3MapGrid.MAP_OFFSET
 	var save := Gen3SaveData.capture(data, save_slot, events,
 		host.objects.camera.group, host.objects.camera.number, cell, player.facing,
-		_play_base + (Time.get_ticks_msec() - _opened_ms) / 1000)
+		play_seconds())
 	if save == null:
 		return {"ok": false, "message": "the save could not be built"}
 	return Gen3SaveStore.save(save, data)
@@ -274,6 +274,11 @@ func open_options() -> void:
 ## screens that will read them (battles, button mode, frame).
 func _apply_options() -> void:
 	message.text_speed = Gen3Options.load().message_text_speed()
+
+
+## Seconds on this clock: the loaded save's carried time plus this session.
+func play_seconds() -> int:
+	return _play_base + (Time.get_ticks_msec() - _opened_ms) / 1000
 
 
 func request(row: Dictionary) -> void: # A task's request for the next [method frame]'s return.

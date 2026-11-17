@@ -109,15 +109,20 @@ func _build_actions(events: Gen3EventData) -> Array[String]:
 	var flags: Dictionary = Gen3FieldInput.FLAGS[events.game]
 	if events.flag_get(int(flags["safari"])):
 		return SAFARI_ACTIONS.duplicate()
-	# POKÉDEX, POKÉMON, BAG, POKÉNAV and PLAYER have no Gen 3 screen at all
-	# (Gen3Bag is a data model only), so they are not offered: a shown row
-	# that only reopened the menu was a dead end, and each returns when its
-	# screen lands. The flag gating below is the ROM's own (`start_menu.c`,
-	# `pokehns/include/constants/flags_hns.h` under SYSTEM_FLAGS 0x860):
+	# The ROM's own gating (`start_menu.c`, SYSTEM_FLAGS 0x860):
 	# FLAG_SYS_POKEMON_GET 0x890, FLAG_SYS_POKEDEX_GET 0x891 and
 	# FLAG_SYS_POKENAV_GET 0x892. The vanilla Emerald ids 0x860/0x861/0x862
-	# are H&S hide flags, not these.
-	return ["save", "option", "exit"]
+	# are H&S hide flags, not these. BAG and PLAYER are always offered.
+	var actions: Array[String] = []
+	if events.flag_get(int(flags["pokedex"])):
+		actions.append("pokedex")
+	if events.flag_get(int(flags["pokemon"])):
+		actions.append("pokemon")
+	actions.append("bag")
+	if events.flag_get(int(flags["pokenav"])):
+		actions.append("pokenav")
+	actions.append("player")
+	return actions + ["save", "option", "exit"]
 
 
 func _draw() -> void:

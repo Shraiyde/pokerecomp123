@@ -81,6 +81,21 @@ func run_task() -> void:
 				_glowing = false
 				active = false
 				_objects.task_effects.erase(_effect)
+				if _heals():
+					_restore_party()
+
+
+## Nurse Joy's machine does what the glow promises: every party mon back
+## to full HP and cured. The nuzlocke dead stay dead.
+func _restore_party() -> void:
+	for mon: Dictionary in _objects.events.party:
+		if bool(mon.get("dead", false)):
+			mon["hp"] = 0
+			continue
+		var full: int = Gen3BattleResolver.max_hp(_objects.camera.data, mon)
+		if full > 0:
+			mon["hp"] = full
+		mon.erase("status")
 
 
 func _create_monitors() -> void:

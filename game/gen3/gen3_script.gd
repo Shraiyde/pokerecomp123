@@ -430,6 +430,22 @@ static func instruction(rom: RomFile, at: int, layout: Dictionary = {}) -> Dicti
 				return {}
 			operands.append(rom.u8(end))
 			end += 1
+		if func_ptr == 0x0820CD59 and rom.id == RomRegistry.HEARTSOUL:
+			# `ScrCmd_createmon`: flag bit 21's halfword is the shiny mode
+			# (ALWAYS/NEVER/RANDOM). The runtime cannot see the stream, so
+			# it rides along as the last operand; old caches lack it.
+			var createmon_flags: int = 0
+			for byte_index: int in 4:
+				createmon_flags |= operands[7 + byte_index] << (byte_index * 8)
+			var shiny_mode: int = -1
+			if createmon_flags & (1 << 21):
+				var bit_cursor: int = end
+				for bit: int in 21:
+					if createmon_flags & (1 << bit):
+						bit_cursor += 2
+				if rom.in_bounds(bit_cursor, 2):
+					shiny_mode = rom.u16le(bit_cursor)
+			operands.append(shiny_mode)
 	return {"opcode": opcode, "command": definition[0], "operands": operands,
 		"next_offset": end, "bytes": Array(rom.slice(at, end - at))}
 

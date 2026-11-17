@@ -41,6 +41,7 @@ var _world_trades: Array = []
 var _types: Array = []
 var _abilities: Array = []
 var _trainers: Array = []
+var _region_map: Dictionary = {}
 ## The matchup chart, folded into a lookup on load: attacker * TYPE_COUNT + defender to the multiplier in
 ## tenths. The chart is 110 rows of exceptions, so a linear search would be a hundred comparisons per hit,
 ## twice a turn.
@@ -203,6 +204,7 @@ const MANIFEST_DICTIONARIES: Dictionary = {
 	"unown_puzzle": "_unown_puzzle",
 	"diploma": "_diploma",
 	"mystery_gift": "_mystery_gift",
+	"region_map": "_region_map",
 	"link_border": "_link_border",
 	"printer_strings": "_printer_strings",
 	"surfing": "_surfing",
@@ -866,6 +868,15 @@ func world_phone_script(kind: StringName) -> Dictionary:
 	var metadata: Dictionary = world_phone_metadata()
 	var key: String = "just_talk_script" if kind == &"just_talk" else "out_of_area_script"
 	return _coerce_service_dictionary(metadata.get(key, {}))
+
+
+## The region map: `entries` (x, y, w, h, name per map section),
+## the section grid and its size. Empty when the import predates it;
+## the manifest loop fills it at open.
+func world_region_map() -> Dictionary:
+	if generation != RomRegistry.GEN3:
+		return {}
+	return _region_map
 
 
 ## One audio record by the number the caller spells it with. A Generation 2 cache is indexed directly; a

@@ -12,6 +12,7 @@ var _held: Array[int] = []
 var _image_texture: ImageTexture
 var _wall_clock: Gen3WallClock = null
 var _naming: Gen3NamingScreen = null
+var _money: Gen3MoneyScreen = null
 var _naming_slot: int = -1
 var _naming_dest: String = "mon"
 var _naming_fade_back: bool = false
@@ -60,7 +61,7 @@ static func _wrap(field: Gen3FieldScreen) -> Gen3FieldView:
 
 
 func _process(delta: float) -> void:
-	if _wall_clock != null or _naming != null:
+	if _wall_clock != null or _naming != null or _battle != null or _menu_screen != null or _money != null:
 		return
 	_clock += delta
 	var frames: int = mini(int(_clock / FRAME_SECONDS), MAX_CATCH_UP)
@@ -84,38 +85,129 @@ func advance() -> void:
 		_settle(row)
 
 
-## A wild mon steps out: FIGHT runs the damage sim, BALL spends the
-## first ball in the bag and throws it, RUN walks away. The choice is
-## immediate (a full battle menu is not modelled yet); RUN and a failed
-## throw both run the resolver for the round that followed.
-func _open_catch_confirm(row: Dictionary) -> void:
-	var events: Gen3EventData = screen.host.objects.events
-	var bag: Gen3Bag = events.bag
-	var ball: int = 1 if bag != null and bag.has(1, 1) else 0 # ITEM_POKE_BALL in the H&S item table.
-	_open_catch_row(row, ball)
+var _battle: Gen3BattleScreen = null
+var _menu_screen: Control = null
+var _menu_party: Gen3PartyScreen = null
+var _field_item: int = 0
 
 
-func _open_catch_row(row: Dictionary, ball: int) -> void:
-	var events: Gen3EventData = screen.host.objects.events
-	var caught: Dictionary = {}
-	if ball > 0 and events.bag.remove(ball, 1):
-		caught = Gen3CatchResolver.try_catch(screen.data, events,
-			int(row.get("species", 0)), int(row.get("level", 5)), _wild_hp_estimate(row), ball)
-	if not caught.is_empty() and events.party.size() < 6:
-		caught["hp"] = int(caught.get("hp", 0))
-		events.party.append(caught)
-		screen.host.unfreeze_field()
-		screen.host.resume()
+## A battle opens over the field: the field pauses while it runs, and
+## the outcome it reports settles through the host's finish calls.
+func _open_battle_wild(row: Dictionary) -> void:
+	if _battle != null:
 		return
-	var wild_outcome: int = Gen3BattleResolver.resolve_wild(screen.data,
-		events, int(row.get("species", 0)), int(row.get("level", 5)))
-	_settle_result(screen.host.finish_wild_battle(wild_outcome))
+	_battle = Gen3BattleScreen.open_wild(get_parent(), screen.data,
+		screen.host.objects.events, int(row.get("species", 0)), int(row.get("level", 5)),
+		screen.host.objects.events.flag_get(int(Gen3FieldInput.FLAGS[screen.data.id]["safari"])))
+	_battle.finished.connect(_on_battle_finished.bind(false))
 
 
-## The wild mon's remaining HP for the catch formula: the resolver
-## mutates a copy, so this asks it for the foe it fought last, else full.
-func _wild_hp_estimate(row: Dictionary) -> int:
-	return int(row.get("hp", 0)) if int(row.get("hp", 0)) > 0 else 9999
+func _open_battle_trainer(row: Dictionary) -> void:
+	if _battle != null:
+		return
+	var foes: Array = []
+	foes.append_array(row.get("party_a", []))
+	foes.append_array(row.get("party_b", []))
+	var name: String = String(row.get("trainer_name", ""))
+	if name.is_empty():
+		var opponent: int = int(row.get("opponent_a", 0))
+		name = screen.data.trainer_name(opponent) if opponent > 0 else "Trainer"
+	_battle = Gen3BattleScreen.open_trainer(get_parent(), screen.data,
+		screen.host.objects.events, name, foes)
+	_battle.finished.connect(_on_battle_finished.bind(true))
+
+
+## A start-menu row with a screen now: the Pokédex, party, bag,
+## Pokégear and trainer card all open over the frozen field and hand
+## back to the start menu on close.
+func _open_menu_screen(action: String) -> void:
+	if _menu_screen != null:
+		return
+	match action:
+		"pokedex":
+			var dex := Gen3PokedexScreen.new()
+			dex.setup(screen.data, screen.host.objects.events)
+			_menu_screen = dex
+		"pokemon":
+			var party := Gen3PartyScreen.new()
+			party.setup(screen.data, screen.host.objects.events, "view")
+			_menu_screen = party
+		"bag":
+			var bag := Gen3BagScreen.new()
+			bag.setup(screen.data, screen.host.objects.events.bag)
+			_menu_screen = bag
+			bag.chosen.connect(_on_field_bag_chosen)
+		"pokenav":
+			var gear := Gen3PokegearScreen.new()
+			gear.setup(screen.data, screen.host.objects.events,
+				int(screen.host.objects.camera.header.get("region_map_section", -1)))
+			_menu_screen = gear
+		"player":
+			var card := Gen3TrainerCardScreen.new()
+			card.setup(screen.data, screen.host.objects.events,
+				screen.play_seconds())
+			_menu_screen = card
+	get_parent().add_child(_menu_screen)
+	if _menu_screen.has_signal("cancelled"):
+		_menu_screen.cancelled.connect(_close_menu_screen)
+	if _menu_screen.has_signal("closed"):
+		_menu_screen.closed.connect(_close_menu_screen)
+
+
+func _close_menu_screen() -> void:
+	if _menu_screen != null:
+		_menu_screen.queue_free()
+		_menu_screen = null
+	screen.return_to_start_menu()
+
+
+## Field bag use: medicine opens the party to pick a target, balls and
+## TMs cannot be used outside battle, revives need a fainted mon.
+func _on_field_bag_chosen(item: int) -> void:
+	_field_item = item
+	if item <= 0:
+		return
+	var info: Dictionary = screen.data.item(item)
+	var kind: String = Gen3BattleScreen.medicine_kind_for(screen.data, item)
+	if kind == "none":
+		return # Balls, TMs and key items wait for their own screens.
+	_menu_party = Gen3PartyScreen.new()
+	_menu_party.setup(screen.data, screen.host.objects.events, "item")
+	get_parent().add_child(_menu_party)
+	_menu_party.chosen.connect(_on_field_item_target)
+	_menu_party.cancelled.connect(_on_field_item_cancelled)
+
+
+func _on_field_item_target(index: int) -> void:
+	var mon: Dictionary = screen.host.objects.events.party[index]
+	var events: Gen3EventData = screen.host.objects.events
+	if Gen3BattleScreen.apply_medicine(screen.data, events, mon, _field_item):
+		events.bag.remove(_field_item, 1)
+	_close_party_to_menu()
+
+
+func _on_field_item_cancelled() -> void:
+	_close_party_to_menu()
+
+
+func _close_party_to_menu() -> void:
+	if _menu_party != null:
+		_menu_party.queue_free()
+		_menu_party = null
+	if _menu_screen != null:
+		_menu_screen.queue_free()
+		_menu_screen = null
+	screen.return_to_start_menu()
+
+
+func _on_battle_finished(outcome: int, is_trainer: bool) -> void:
+	if _battle != null:
+		_battle.queue_free()
+		_battle = null
+	if is_trainer:
+		_settle_result(screen.host.finish_battle(outcome))
+	else:
+		_settle_result(screen.host.finish_wild_battle(outcome))
 
 
 ## A battle's aftermath: a white out heals the party where it stands
@@ -140,7 +232,9 @@ func _settle(row: Dictionary) -> void:
 	print("gen3 field: ", row)
 	match kind:
 		"start_menu_action":
-			if row["action"] == Gen3FieldStartMenu.OPTION:
+			if row["action"] in ["pokedex", "pokemon", "bag", "pokenav", "player"]:
+				_open_menu_screen(String(row["action"]))
+			elif row["action"] == Gen3FieldStartMenu.OPTION:
 				screen.open_options()
 			elif row["action"] == Gen3FieldStartMenu.RETIRE:
 				screen.host.input.exit_safari() # The menu already unfroze the field; RETIRE returns to it, it does not reopen the menu.
@@ -149,14 +243,9 @@ func _settle(row: Dictionary) -> void:
 			else:
 				screen.return_to_start_menu()
 		"trainer_battle":
-			var foes: Array = []
-			foes.append_array(row.get("party_a", []))
-			foes.append_array(row.get("party_b", []))
-			var outcome: int = Gen3BattleResolver.resolve(screen.data,
-				screen.host.objects.events, foes)
-			_settle_result(screen.host.finish_battle(outcome))
+			_open_battle_trainer(row)
 		"wild_battle":
-			_open_catch_confirm(row)
+			_open_battle_wild(row)
 		"mart":
 			screen.host.finish_wait()
 		"field_special":
@@ -165,6 +254,8 @@ func _settle(row: Dictionary) -> void:
 				_open_wall_clock(special_name == "Special_ViewWallClock")
 			elif special_name in ["ChangePokemonNickname", "NameRival"]:
 				_open_naming_screen(row)
+			elif special_name == "MomAmountInput":
+				_open_money_screen(row)
 			else:
 				# A screen the engine does not draw still has to give the field
 				# back: `ChooseStarter` is the one the ROM fades to black for
@@ -272,3 +363,40 @@ func _close_naming() -> void:
 		screen.weather.fade_screen(Gen3FieldWeather.Fade.FROM_BLACK, 0)
 	screen.host.finish_wait()
 	screen.host.resume()
+
+
+## Mom's amount input: confirm writes the amount the script reads from
+## VAR_0x8000, backing out writes 0, exactly as `mom_savings.c` does.
+func _open_money_screen(row: Dictionary) -> void:
+	if _money != null:
+		return
+	var mode: String = String(row.get("mode", "deposit"))
+	var bag: Gen3Bag = screen.host.objects.events.bag
+	var ceiling: int = bag.money if bag != null and mode == "deposit" \
+		else screen.host.objects.events.mom_balance
+	_money = Gen3MoneyScreen.new()
+	get_parent().add_child(_money)
+	_money.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_money.finished.connect(_on_money_finished)
+	_money.cancelled.connect(_on_money_cancelled)
+	_money.open(ceiling)
+
+
+func _on_money_finished(amount: int) -> void:
+	_close_money()
+	screen.host.objects.events.var_set(Gen3ScriptServices.VAR_0X8000, amount)
+	screen.host.finish_wait()
+	screen.host.resume()
+
+
+func _on_money_cancelled() -> void:
+	_close_money()
+	screen.host.objects.events.var_set(Gen3ScriptServices.VAR_0X8000, 0)
+	screen.host.finish_wait()
+	screen.host.resume()
+
+
+func _close_money() -> void:
+	if _money != null:
+		_money.queue_free()
+		_money = null

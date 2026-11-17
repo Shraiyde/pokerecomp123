@@ -122,8 +122,29 @@ func _open_coop() -> void:
 		_coop_screen = Gen3CoopScreen.new()
 		_coop_screen.closed.connect(func() -> void: _coop_screen.visible = false)
 		add_child(_coop_screen)
+	if _view != null:
+		_coop_screen.open(screen_data(), screen_events(), _freeze_field, _unfreeze_field)
 	_coop_screen.visible = true
 	move_child(_coop_screen, get_child_count() - 1)
+
+
+func screen_data() -> GameData:
+	return _data
+
+
+func screen_events() -> Gen3EventData:
+	return _view.screen.host.objects.events if _view != null else null
+
+
+func _freeze_field() -> void:
+	if _view != null:
+		_view.screen.host.freeze_for_menu()
+		screen_events().controls_locked = true
+
+
+func _unfreeze_field() -> void:
+	if _view != null:
+		_view.screen.host.unfreeze_field()
 
 
 ## The co-op pump: the transport rides the field's own frame, diffing the

@@ -701,6 +701,10 @@ const HEARTSOUL: Dictionary = {
 	"dex_entry_from_species": true,  # no gPokedexEntries table; dex data is in gSpeciesInfo
 	"dex_pages": 1,
 
+	"region_map_entries": 0xd57a4c,  # gRegionMapEntries, {u8 x, y, w, h, u32 name}
+	"region_map_entry_count": 125,
+	"region_map_grid": 0xd5865c,  # sRegionMapSections_Johto, 28x15 MAPSEC ids
+	"region_map_width": 28, "region_map_height": 15,
 	"tmhm_moves": 0x7909dc,  # gTMHMItemMoveIds, {u16 itemId, u16 moveId}
 	"tmhm_count": 100,  # NUM_ALL_MACHINES
 	"tmhm_stride": 4,

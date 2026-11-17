@@ -26,7 +26,10 @@ var _speed: int = 0
 var _held_dir: int = 0
 var _a_held: bool = false
 var _b_held: bool = false
+var _r_held: bool = false
 var _done: bool = false
+var _confirming: bool = false # A was pressed: A now means YES, B means NO.
+var _hour_mode: bool = false # R toggles: LEFT/RIGHT move the hour hand instead of the minute hand.
 var _view_only: bool = false # `Special_ViewWallClock` shows the time; only `StartWallClock` lets the player set it.
 
 
@@ -44,7 +47,10 @@ func open(start_hour: int, start_minute: int, view_only: bool = false) -> void:
 	# message before it — is not a fresh press, so it must not confirm.
 	_a_held = PokeButton.held(PokeButton.A)
 	_b_held = PokeButton.held(PokeButton.B)
+	_r_held = PokeButton.held(PokeButton.R)
 	_done = false
+	_confirming = false
+	_hour_mode = false
 	queue_redraw()
 
 
@@ -68,15 +74,11 @@ func _draw() -> void:
 	draw_line(center, center + Vector2(cos(hour_angle), sin(hour_angle)) * HOUR_HAND, HAND_COLOR, 5.0)
 	draw_circle(center, 5.0, HAND_COLOR)
 	# Digital time + AM/PM below the face.
-	var period: String = "AM" if hour < 12 else "PM"
-	var display_hour: int = hour % 12
-	if display_hour == 0:
-		display_hour = 12
-	var text: String = "%d:%02d %s" % [display_hour, minute, period]
+	var text: String = _time_text()
 	var font: Font = ThemeDB.fallback_font
 	var text_size: Vector2 = font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, 44)
 	draw_string(font, center + Vector2(-text_size.x * 0.5, FACE_RADIUS + 64.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 44, TEXT_COLOR)
-	var hint: String = "B: back" if _view_only else "LEFT / RIGHT: set time    A: confirm    B: back"
+	var hint: String = "B: back" if _view_only else ("Set the time to %s?  A: YES  B: NO" % _time_text() if _confirming else ("R: hour/minute    LEFT / RIGHT: %s    A: confirm    B: back" % ("HOUR" if _hour_mode else "MINUTES")))
 	var hint_size: Vector2 = font.get_string_size(hint, HORIZONTAL_ALIGNMENT_CENTER, -1, 22)
 	draw_string(font, center + Vector2(-hint_size.x * 0.5, FACE_RADIUS + 104.0), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, TEXT_COLOR)
 
@@ -90,12 +92,20 @@ func _process(_delta: float) -> void:
 	if dir != _held_dir:
 		_held_dir = dir
 		_speed = 0
-	if dir != 0 and not _view_only:
+	if dir != 0 and not _view_only and not _confirming:
 		_speed = mini(_speed + 1, 12)
-		# Step the minute hand; faster the longer it is held.
+		# Step the selected hand; faster the longer it is held.
 		var step: int = 1 if _speed < 6 else 5
-		_advance_minutes(dir * step)
+		if _hour_mode:
+			_advance_minutes(dir * step * 60)
+		else:
+			_advance_minutes(dir * step)
 		queue_redraw()
+	var r_held: bool = PokeButton.held(PokeButton.R)
+	if r_held and not _r_held and not _view_only and not _confirming:
+		_hour_mode = not _hour_mode # R switches the hand being set.
+		queue_redraw()
+	_r_held = r_held
 	# A and B are polled like the directions, on the rising edge: the touch
 	# pad's synthetic actions never reach `_unhandled_input`, so the face
 	# could never be confirmed or cancelled from the on-screen buttons.
@@ -108,12 +118,29 @@ func _process(_delta: float) -> void:
 	_a_held = a_held
 	var b_held: bool = PokeButton.held(PokeButton.B)
 	if b_held and not _b_held:
-		_cancel()
+		if _confirming:
+			_confirming = false # NO steps back to setting the time.
+			queue_redraw()
+		else:
+			_cancel()
 	_b_held = b_held
+
+
+func _time_text() -> String:
+	var period: String = "AM" if hour < 12 else "PM"
+	var display_hour: int = hour % 12
+	if display_hour == 0:
+		display_hour = 12
+	return "%d:%02d %s" % [display_hour, minute, period]
 
 
 func _confirm() -> void:
 	if _done:
+		return
+	if not _confirming:
+		# A asks once more, as the ROM's clock does: YES sets it, NO steps back to setting.
+		_confirming = true
+		queue_redraw()
 		return
 	_done = true
 	finished.emit(hour, minute)

@@ -770,6 +770,8 @@ func _route(command: String, event: Dictionary) -> bool:
 
 func _present(event: Dictionary) -> void:
 	var command: String = event["command"]
+	if command == "showmonpic":
+		_maybe_roll_shiny_starter() # The lab's ball preview rolls the starter's shininess.
 	var operands: Array = event["operands"].duplicate()
 	var through_vars: Array = Gen3ScriptContext.PRESENTATION.get(command, Gen3ScriptContext.HOST_WAITS.get(command, []))
 	for index: int in through_vars:
@@ -976,12 +978,10 @@ func _field_special(name: String) -> int: # The specials field_control_avatar.c'
 		"Special_MomDisableSaving": events.mom_saving = false
 		"Special_MomEnsureInitialized": pass # mom_savings.c::Mom_EnsureInitialized returns early once initialized; the balance starts at 0 and nothing here changes it.
 		"Special_MomOpenDepositInput", "Special_MomOpenWithdrawInput":
-			# mom_savings.c cancels the amount input with VAR_0x8000 at 0, and the
-			# script returns to Mom's menu. No Gen 3 amount-input screen exists
-			# yet, so opening one is that cancel: the amount stays 0 and the
-			# dialog ends instead of hanging on a screen that never opens.
-			events.var_set(VAR_0X8000, 0)
-			_screen_special(name)
+			# mom_savings.c opens the amount input, writes it to VAR_0x8000,
+			# and the script carries on; cancel writes 0.
+			_screen_special("MomAmountInput", {"mode": "deposit" \
+				if name == "Special_MomOpenDepositInput" else "withdraw"})
 		"ChangePokemonNickname": _nickname_special()
 		"ChooseStarter":
 			# Route101 fades the field to black before this special, and the
@@ -1032,6 +1032,22 @@ func _player_special(name: String) -> int:
 			_screen_special(name, {"dest": "rival", "nickname": objects.events.rival_name})
 		_: _screen_special(name)
 	return 0
+
+
+func _maybe_roll_shiny_starter() -> void: # The lab's ball preview: before the first mon is owned, each starter's first look rolls shininess once (`ScrCmd_showmonpic`), exactly as the ROM does.
+	var events: Gen3EventData = objects.events
+	if events.game != RomRegistry.HEARTSOUL or events.flag_get(0x890):
+		return
+	var starter: int = events.var_get(0x4023)
+	if starter < 0 or starter > 2:
+		return
+	if events.flag_get(1 + starter):
+		return
+	var personality: int = (events.random.next() << 16) | events.random.next()
+	var shiny_value: int = (personality ^ (personality >> 16)) & 0xFFFF # GET_SHINY_VALUE with the save's OT id (0 before the intro names anyone).
+	if shiny_value < 8: # GetShinyOdds, the ROM's 1/8192.
+		events.flag_set(4 + starter)
+	events.flag_set(1 + starter)
 
 
 func _nickname_special() -> void: # pokemon.c::ChangePokemonNicknameWithCallback opens the naming screen on the party mon VAR_0x8004 names, prefilled with its nickname; the screen writes the entered name back on confirm.

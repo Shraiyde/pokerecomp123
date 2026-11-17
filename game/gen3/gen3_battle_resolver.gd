@@ -179,10 +179,25 @@ static func _combatant(data: GameData, row: Dictionary) -> Dictionary:
 	}
 
 
-static func _hit(data: GameData, events: Gen3EventData, attacker: Dictionary, defender: Dictionary) -> void:
-	var move: Dictionary = _best_move(data, attacker, defender)
+## One attack with a chosen move: the player-facing half of a round.
+## The battle screen drives rounds through this; the auto path uses
+## [_hit] (best move) for both sides.
+static func strike(data: GameData, events: Gen3EventData, attacker: Dictionary, defender: Dictionary, move: Dictionary) -> void:
 	if move.is_empty():
 		return
+	_apply_hit(data, attacker, defender, move, events.random.randi_range(85, 100))
+
+
+## The link-battle strike: the ROM's math with the damage roll fixed,
+## so both phones compute the same round from the same exchanged
+## choices without sharing RNG state.
+static func strike_fixed(data: GameData, attacker: Dictionary, defender: Dictionary, move: Dictionary) -> void:
+	if move.is_empty():
+		return
+	_apply_hit(data, attacker, defender, move, 92)
+
+
+static func _apply_hit(data: GameData, attacker: Dictionary, defender: Dictionary, move: Dictionary, roll: int) -> void:
 	var physical: bool = int(move.get("category", 0)) != 1
 	var atk: int = int(attacker["attack"] if physical else attacker["sp_attack"])
 	var def: int = maxi(int(defender["defense"] if physical else defender["sp_defense"]), 1)
@@ -191,8 +206,15 @@ static func _hit(data: GameData, events: Gen3EventData, attacker: Dictionary, de
 		damage = damage * 3 / 2 # STAB.
 	for defending_type: Variant in defender["types"]:
 		damage = damage * data.type_matchup(int(move.get("type", 0)), int(defending_type)) / 10
-	damage = damage * events.random.randi_range(85, 100) / 100
+	damage = damage * roll / 100
 	defender["hp"] = int(defender["hp"]) - maxi(damage, 0)
+
+
+static func _hit(data: GameData, events: Gen3EventData, attacker: Dictionary, defender: Dictionary) -> void:
+	var move: Dictionary = _best_move(data, attacker, defender)
+	if move.is_empty():
+		return
+	strike(data, events, attacker, defender, move)
 
 
 static func _best_move(data: GameData, attacker: Dictionary, defender: Dictionary) -> Dictionary:

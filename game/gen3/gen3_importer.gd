@@ -492,6 +492,10 @@ static func import_rom(rom: RomFile, on_progress: Callable = Callable()) -> Dict
 	var items: Array = _import_items(rom, layout)
 	var abilities: Array = _import_abilities(rom, layout)
 	var world: Dictionary = Gen3World.read(rom, layout)
+	var region: Dictionary = Gen3World._region_map(rom, layout)
+	if region.is_empty():
+		result["message"] = "Could not read the region map."
+		return result
 	var tmhm_moves: Array = []
 	var tmhm_count: int = int(layout.get("tmhm_count", TMHM_COUNT))
 	var tmhm_stride: int = int(layout.get("tmhm_stride", 2))
@@ -540,6 +544,7 @@ static func import_rom(rom: RomFile, on_progress: Callable = Callable()) -> Dict
 		"item_count": items.size(),
 		"ability_count": abilities.size(),
 		"trainer_count": trainers.size(),
+		"region_map": region,
 		"map_count": world["headers"].size(),
 		"script_instruction_count": world["scripts"]["instructions"].size(),
 		"script_text_count": world["scripts"]["texts"].size(),

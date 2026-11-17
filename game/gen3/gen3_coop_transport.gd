@@ -32,6 +32,9 @@ var _sent_vars: Dictionary = {}
 var _need_full: bool = true
 var _last_peer_ms: int = 0
 var _started: bool = false
+## Battle and trade messages for the link UI, oldest first; the story
+## sync consumes its own types straight into the event data.
+var inbox: Array = []
 
 
 static func host() -> Gen3CoopTransport:
@@ -164,6 +167,8 @@ func _on_message(_topic: String, payload: PackedByteArray) -> void:
 		"bye":
 			_last_peer_ms = 0
 			peer_name = ""
+		"battle", "battle_accept", "battle_decline", "round", "trade", "trade_accept", "trade_decline":
+			inbox.append(msg)
 
 
 ## Applies the peer's changes locally and folds them into the sent
@@ -186,6 +191,29 @@ func _apply(msg: Dictionary) -> void:
 	for pair: Variant in snapshot["vars"]:
 		_sent_vars[int((pair as Array)[0])] = int((pair as Array)[1])
 	_need_full = false
+
+
+## The party in link shape: species, level and moves only, the same
+## rows both ends build combatants from.
+static func compact_party(party: Array) -> Array:
+	var out: Array = []
+	var index: int = 0
+	for mon: Variant in party:
+		var row: int = index
+		index += 1
+		if not mon is Dictionary:
+			continue
+		out.append({"i": row, "egg": bool((mon as Dictionary).get("egg", false)),
+			"species": int((mon as Dictionary).get("species", 0)),
+			"level": int((mon as Dictionary).get("level", 5)),
+			"moves": ((mon as Dictionary).get("moves", []) as Array).duplicate()})
+	return out
+
+
+## One link-protocol message (battle challenge, round choice, trade
+## offer): the story sync keeps its own sender.
+func send_link(type: String, fields: Dictionary) -> void:
+	_send(type, fields)
 
 
 func _send(type: String, fields: Dictionary) -> void:

@@ -413,6 +413,40 @@ static func _keep(rom: RomFile, graphics: Dictionary, at: int, bytes: int) -> bo
 	return true
 
 
+static func _region_map(rom: RomFile, layout: Dictionary) -> Dictionary:
+	var out: Dictionary = {"entries": [], "grid": [], "width": 28, "height": 15}
+	if rom.id != RomRegistry.HEARTSOUL:
+		return out
+	var count: int = int(layout.get("region_map_entry_count", 0))
+	var at: int = Gen3Layout.rom_offset(int(layout.get("region_map_entries", 0)))
+	var width: int = int(layout.get("region_map_width", 28))
+	var height: int = int(layout.get("region_map_height", 15))
+	if at < 0 or count < 1 or not rom.in_bounds(at, count * 8):
+		return {}
+	out["width"] = width
+	out["height"] = height
+	for index: int in count:
+		var row: int = at + index * 8
+		var name: Variant = Gen3World._pointed_text(rom, row + 4)
+		out["entries"].append({"x": rom.u8(row), "y": rom.u8(row + 1),
+			"w": rom.u8(row + 2), "h": rom.u8(row + 3),
+			"name": String(name) if name != null else ""})
+	var grid_at: int = Gen3Layout.rom_offset(int(layout.get("region_map_grid", 0)))
+	if grid_at < 0 or not rom.in_bounds(grid_at, width * height):
+		return {}
+	for cell: int in width * height:
+		out["grid"].append(rom.u8(grid_at + cell))
+	return out
+
+
+static func _pointed_text(rom: RomFile, at: int) -> Variant:
+	var offset: int = Gen3Layout.rom_offset(rom.u32le(at))
+	var length: int = Gen3Text.span(rom.id, rom.bytes(), offset, Gen3Layout.TEXT_LIMIT)
+	if length < 0:
+		return null
+	return Gen3Text.decode_fixed(rom.id, rom.bytes(), offset, length)
+
+
 static func _door_graphics(rom: RomFile, layout: Dictionary, out: Dictionary, graphics: Dictionary) -> bool: # `DoorGraphics` to its null tiles pointer; H&S rows are 20 B with sound +8 and size +9, vanilla 12 B rows keep +2/+3.
 	var frlg: bool = rom.id in [RomRegistry.FIRERED, RomRegistry.LEAFGREEN]
 	var ruby: bool = rom.id in [RomRegistry.RUBY, RomRegistry.SAPPHIRE]

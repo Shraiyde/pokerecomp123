@@ -333,6 +333,9 @@ func _createmon(args: Array) -> bool: # `ScrCmd_createmon`: header bytes are ope
 	var flags: int = int(args[7]) | (int(args[8]) << 8) | (int(args[9]) << 16) | (int(args[10]) << 24)
 	# The importer consumes only the 10 header bytes, so `offset` still points at the first flag-dependent halfword; skip one per set flag bit to land on the next instruction.
 	offset += 2 * _popcount(flags)
+	# Bit 21's halfword is the shiny mode, decoded by the importer into
+	# operand 11 (old caches predate it and read as never shiny).
+	var shiny: bool = args.size() > 11 and int(args[11]) == 0 # SHINY_MODE_ALWAYS.
 	if side != 0:
 		return false # No enemy-party model; fault honestly instead of pretending the mon exists.
 	var target: int = _events.party.size() if slot >= PARTY_SIZE else slot
@@ -340,6 +343,7 @@ func _createmon(args: Array) -> bool: # `ScrCmd_createmon`: header bytes are ope
 		_events.var_set(VAR_RESULT, MON_CANT_GIVE)
 		return true
 	var mon: Dictionary = _gift_mon(species, level)
+	mon["shiny"] = shiny
 	if target < _events.party.size():
 		_events.party[target] = mon
 	else:

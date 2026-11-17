@@ -44,11 +44,15 @@ var player_gender: int = 0 # `gSaveBlock2Ptr->playerGender`: 0 boy, 1 girl, chos
 var randomizer: Dictionary = {"wild": false, "trainer": false, "items": false, "starter": false}
 var nuzlocke: bool = false # The challenge menu's nuzlocke switch; its catch/death rules ride the battle model.
 var nuzlocke_seen: Array = [] # Map keys ("group:number") whose first encounter already happened.
+var pc_boxes: Array = [] # Caught mons past a full party, the ROM's storage boxes in one list.
+var safari_balls: int = 0 # This visit's Safari Balls; the gate refills them.
 var rival_name: String = "" # FireRed and LeafGreen's `gSaveBlock1Ptr->rivalName`.
 var registered_item: int = 0 # `gSaveBlock1Ptr->registeredItem`.
 var respawn: int = 0 # `gSaveBlock1Ptr->lastHealLocation`'s `HEAL_LOCATION_*`.
 var battle_outcome: int = 0 # `gBattleOutcome`.
 var last_wild: Dictionary = {} # The last wild roll, for a ball thrown at it.
+var dex_seen: Array = [] # National numbers met in battle, `GetSetPokedexFlag ... FLAG_GET_SEEN`.
+var dex_caught: Array = [] # National numbers owned, `... FLAG_GET_CAUGHT`.
 var clock_hour: int = 12 # The wall clock's hour, set by `StartWallClock`; the RTC the story flags read.
 var clock_minute: int = 0 # The wall clock's minute, set by `StartWallClock`.
 var mom_balance: int = 0 # `gSaveBlock1Ptr->momSavings.momsMoney`; no deposit/withdraw input screen exists yet, so nothing changes it.
@@ -66,6 +70,17 @@ func _init(game_id: StringName) -> void:
 ## `RandomizerFeatureEnabled` for one `tx_Random_*` switch.
 func randomizer_on(feature: String) -> bool:
 	return bool(randomizer.get(feature, false))
+
+
+## `GetSetPokedexFlag species, FLAG_GET_SEEN/CAUGHT`: recorded once,
+## counted by the Pokédex.
+func dex_mark(species: int, caught: bool) -> void:
+	if species < 1:
+		return
+	if not dex_seen.has(species):
+		dex_seen.append(species)
+	if caught and not dex_caught.has(species):
+		dex_caught.append(species)
 
 
 ## The nuzlocke first-encounter rule: true (and recorded) the first time
@@ -137,6 +152,9 @@ func to_dict() -> Dictionary: # `gSaveBlock1Ptr`'s flags, vars, party, bag, name
 		"randomizer": randomizer.duplicate(),
 		"nuzlocke": nuzlocke,
 		"nuzlocke_seen": nuzlocke_seen.duplicate(),
+		"pc_boxes": pc_boxes.duplicate(true),
+		"dex_seen": dex_seen.duplicate(),
+		"dex_caught": dex_caught.duplicate(),
 		"rival_name": rival_name,
 		"registered_item": registered_item,
 		"respawn": respawn,
@@ -227,6 +245,18 @@ static func from_dict(raw: Variant, data: GameData) -> Gen3EventData:
 		for feature: String in events.randomizer:
 			events.randomizer[feature] = bool((randomizer_raw as Dictionary).get(feature, false))
 	events.nuzlocke = bool(source.get("nuzlocke", false))
+	for key: String in ["dex_seen", "dex_caught"]:
+		var seen_raw: Variant = source.get(key, [])
+		var target: Array = events.dex_seen if key == "dex_seen" else events.dex_caught
+		if seen_raw is Array:
+			for entry: Variant in seen_raw as Array:
+				if int(entry) >= 1:
+					target.append(int(entry))
+	var boxes_raw: Variant = source.get("pc_boxes", [])
+	if boxes_raw is Array:
+		for member: Variant in boxes_raw as Array:
+			if member is Dictionary and int((member as Dictionary).get("species", 0)) > 0:
+				events.pc_boxes.append((member as Dictionary).duplicate(true))
 	var seen_raw: Variant = source.get("nuzlocke_seen", [])
 	if seen_raw is Array:
 		for key: Variant in seen_raw as Array:
